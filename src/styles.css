@@ -1,0 +1,2236 @@
+/* ===== WhatsApp Contact Panel Sidebar — Elo Design System ===== */
+
+:root {
+  /* Marca */
+  --sf-cyan: #29a9ff;
+  --sf-blue: #2e6bff;
+  --sf-violet: #7a3cf0;
+  --sf-grad: linear-gradient(118deg, #29a9ff 0%, #2e6bff 42%, #7a3cf0 100%);
+  --sf-grad-soft: linear-gradient(118deg, rgba(41, 169, 255, 0.14), rgba(122, 60, 240, 0.14));
+
+  /* Neutros */
+  --sf-bg: #fafafe;
+  --sf-surface: #ffffff;
+  --sf-surface-2: #f4f4f7;
+  --sf-surface-3: #e9e9ee;
+  --sf-ink: #232333;
+  --sf-ink-2: #5d5d6b;
+  --sf-ink-3: #8c8c97;
+  --sf-line: #dfdfe6;
+  --sf-line-2: #cfcfd9;
+
+  /* Navy */
+  --sf-navy: #0c1230;
+  --sf-navy-2: #131a3e;
+
+  /* Semântica */
+  --sf-red: #e0245e;
+  --sf-error: #ef4444;
+  --sf-amber: #d97706;
+  --sf-green: #16a34a;
+  --sf-wa: #22c55e;
+
+  /* Sombras */
+  --sf-sh-sm: 0 1px 2px rgba(13, 19, 48, .05), 0 1px 3px rgba(13, 19, 48, .06);
+  --sf-sh: 0 8px 24px -10px rgba(13, 19, 48, .14), 0 2px 6px rgba(13, 19, 48, .05);
+  --sf-sh-lg: 0 30px 70px -28px rgba(20, 26, 62, .34), 0 8px 24px -14px rgba(20, 26, 62, .18);
+  --sf-sh-brand: 0 18px 40px -16px rgba(46, 107, 255, .5);
+
+  /* Fontes */
+  --sf-font-sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --sf-font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+
+/* Side-by-side layout. WhatsApp's own root container is pinned to the
+   viewport (fixed/100vw), so flexbox on body can't shrink it — we instead
+   force it into a fixed box that stops short of the sidebar's width. */
+html,
+body {
+  overflow: hidden;
+}
+
+/* Our sidebar is appended as a sibling of #app/#startup, outside WhatsApp's
+   own box-sizing reset scope — width:100% + padding/border would otherwise
+   compute content-box and overflow past the sidebar's edge.
+   !important: WhatsApp's own page CSS targets bare `input`/`button` tags
+   with selectors specific enough (eg. `#app button`) to tie or beat this
+   rule's specificity, letting content-box leak into inputs/buttons like
+   .sf-pending-search and .sf-pending-link-btn and push them past the edge. */
+#sf-wa-sidebar,
+#sf-wa-sidebar *,
+#sf-wa-collapse-tab,
+.sf-modal-overlay,
+.sf-modal-overlay * {
+  box-sizing: border-box !important;
+}
+
+body.sf-sidebar-open #app,
+body.sf-sidebar-open #startup {
+  position: fixed !important;
+  top: 0 !important;
+  left: 0 !important;
+  right: 360px !important;
+  bottom: 0 !important;
+  width: auto !important;
+  height: auto !important;
+  max-width: none !important;
+  min-width: 0 !important;
+  transition: right 0.25s ease;
+}
+
+#sf-wa-sidebar {
+  position: fixed;
+  top: 0;
+  right: 0;
+  width: 360px;
+  height: 100vh;
+  background: var(--sf-surface);
+  border-left: 1px solid var(--sf-line);
+  box-shadow: var(--sf-sh-lg);
+  z-index: 99999;
+  display: flex;
+  flex-direction: column;
+  font-family: var(--sf-font-sans);
+  font-size: 13px;
+  color: var(--sf-ink);
+  -webkit-font-smoothing: antialiased;
+  transition: transform 0.25s ease;
+  transform: translateX(0);
+}
+
+#sf-wa-sidebar.sf-hidden {
+  transform: translateX(100%);
+}
+
+/* Header — faixa navy com glow radial roxo/ciano */
+#sf-wa-header {
+  position: relative;
+  z-index: 5;
+  background: var(--sf-header-bg, var(--sf-navy));
+  color: #ffffff;
+  padding: 10px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+}
+
+#sf-wa-header::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: var(--sf-header-glow-opacity, 1);
+  background:
+    radial-gradient(220px 130px at 95% -30%, rgba(122, 60, 240, .55), transparent 60%),
+    radial-gradient(180px 130px at -5% 130%, rgba(41, 169, 255, .4), transparent 60%);
+}
+
+#sf-wa-header .sf-logo-area {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.sf-logo {
+  height: 40px;
+  width: auto;
+  display: block;
+}
+
+.sf-header-actions {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+#sf-wa-toggle-btn,
+#sf-wa-logout-btn,
+#sf-wa-refresh-btn,
+#sf-wa-linked-toggle-btn {
+  background: rgba(255, 255, 255, .1);
+  border: none;
+  cursor: pointer;
+  color: white;
+  width: 28px;
+  height: 28px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s ease;
+}
+
+#sf-wa-toggle-btn:hover,
+#sf-wa-logout-btn:hover,
+#sf-wa-refresh-btn:hover,
+#sf-wa-linked-toggle-btn:hover {
+  background: rgba(255, 255, 255, 0.22);
+}
+
+#sf-wa-refresh-btn.sf-spinning svg {
+  animation: sf-spin 0.8s linear infinite;
+}
+
+#sf-wa-linked-toggle-btn.sf-active {
+  background: rgba(255, 255, 255, 0.32);
+}
+
+.sf-hidden-el {
+  display: none !important;
+}
+
+/* Dropdown "+ Novo" */
+.sf-new-dropdown {
+  position: relative;
+}
+
+#sf-wa-new-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(255, 255, 255, .1);
+  border: none;
+  cursor: pointer;
+  color: white;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 9999px;
+  font-family: var(--sf-font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  transition: background 0.15s ease;
+}
+
+#sf-wa-new-btn:hover {
+  background: rgba(255, 255, 255, 0.22);
+}
+
+.sf-new-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 10;
+  background: var(--sf-surface);
+  border: 1px solid var(--sf-line);
+  border-radius: 12px;
+  box-shadow: var(--sf-sh);
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 180px;
+}
+
+.sf-new-menu-item {
+  background: none;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 12.5px;
+  color: var(--sf-ink);
+  transition: background 0.12s ease;
+}
+
+.sf-new-menu-item:hover {
+  background: var(--sf-surface-2);
+}
+
+.sf-new-menu-item:disabled {
+  color: var(--sf-ink-3);
+  cursor: not-allowed;
+}
+
+.sf-new-menu-item:disabled:hover {
+  background: none;
+}
+
+.sf-new-menu-sep {
+  height: 1px;
+  margin: 4px 2px;
+  background: var(--sf-line);
+}
+
+/* Modal genérico (criação/edição) — hero navy com glow radial, porte de ModalHeader.tsx */
+.sf-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100000;
+  background: rgba(12, 18, 48, 0.42);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+/* Modal aninhado (ex.: "+ Nova oportunidade" aberto de dentro de outro modal de
+   criação) — empilha por cima do modal pai, com um backdrop um pouco mais escuro. */
+.sf-modal-overlay-nested {
+  z-index: 100010;
+  background: rgba(12, 18, 48, 0.55);
+}
+
+.sf-modal {
+  width: 100%;
+  max-width: 340px;
+  max-height: 100%;
+  overflow-y: auto;
+  background: var(--sf-surface);
+  border-radius: 18px;
+  box-shadow: var(--sf-sh-lg);
+  animation: sf-rise 0.3s cubic-bezier(.22, 1, .36, 1) both;
+}
+
+.sf-modal-header {
+  position: relative;
+  overflow: hidden;
+  background: var(--sf-navy);
+  color: #ffffff;
+  padding: 20px 22px 18px;
+  border-radius: 18px 18px 0 0;
+}
+
+.sf-modal-header::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(220px 130px at 95% -30%, rgba(122, 60, 240, .55), transparent 60%),
+    radial-gradient(180px 130px at -5% 130%, rgba(41, 169, 255, .4), transparent 60%);
+}
+
+.sf-modal-close {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  z-index: 1;
+  width: 28px;
+  height: 28px;
+  border-radius: 10px;
+  border: none;
+  background: rgba(255, 255, 255, .12);
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.sf-modal-close:hover {
+  background: rgba(255, 255, 255, .24);
+}
+
+.sf-modal-eyebrow {
+  position: relative;
+  font-family: var(--sf-font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, .6);
+  margin-bottom: 4px;
+}
+
+.sf-modal-title {
+  position: relative;
+  font-family: var(--sf-font-mono);
+  font-size: 15px;
+  font-weight: 600;
+  color: #ffffff;
+  padding-right: 30px;
+}
+
+.sf-modal-subtitle {
+  position: relative;
+  margin-top: 4px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, .65);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sf-modal-body {
+  padding: 18px 22px 22px;
+  display: flex;
+  flex-direction: column;
+}
+
+.sf-modal-label {
+  font-family: var(--sf-font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--sf-ink-3);
+  margin: 12px 0 4px;
+}
+
+.sf-modal-label:first-child {
+  margin-top: 0;
+}
+
+.sf-modal-input {
+  width: 100%;
+  border: 1.5px solid var(--sf-line-2);
+  border-radius: 12px;
+  background: var(--sf-surface);
+  padding: 8px 12px;
+  font-size: 13px;
+  font-family: var(--sf-font-sans);
+  color: var(--sf-ink);
+  outline: none;
+  transition: border-color .15s ease, box-shadow .15s ease;
+  /* Sem isso, o dropdown nativo do <select> (e os pickers de date/time) segue o
+     tema dark do SO/Chrome em vez do tema claro do painel — vira uma lista
+     preta com item azul, destoando do resto do modal. */
+  color-scheme: light;
+}
+
+.sf-modal-input:focus {
+  border-color: var(--sf-blue);
+  box-shadow: 0 0 0 4px rgba(46, 107, 255, .10);
+}
+
+/* Dropdown customizado do "Profissional responsável". Trocamos o <select>
+   nativo porque o Chrome (Windows) pinta a lista com o tema escuro do SO quando
+   o WhatsApp está em dark mode — aqui a lista é 100% CSS e casa com os inputs. */
+.sf-select {
+  position: relative;
+}
+
+.sf-select-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.sf-select-trigger:disabled {
+  cursor: default;
+  opacity: .6;
+}
+
+.sf-select-value {
+  flex: 1;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.sf-select-placeholder {
+  color: var(--sf-ink-3);
+}
+
+.sf-select-caret {
+  flex-shrink: 0;
+  color: var(--sf-ink-3);
+}
+
+.sf-select-menu {
+  position: absolute;
+  z-index: 5;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  max-height: 210px;
+  overflow-y: auto;
+  background: var(--sf-surface);
+  border: 1px solid var(--sf-line);
+  border-radius: 12px;
+  box-shadow: var(--sf-sh);
+  padding: 4px;
+}
+
+.sf-select-item {
+  display: block;
+  width: 100%;
+  background: none;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+  padding: 8px 9px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-family: var(--sf-font-sans);
+  color: var(--sf-ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: background 0.12s ease;
+}
+
+.sf-select-item:hover,
+.sf-select-item-active {
+  background: var(--sf-surface-2);
+}
+
+.sf-modal-textarea {
+  resize: vertical;
+  min-height: 60px;
+  font-family: var(--sf-font-sans);
+}
+
+.sf-modal-error {
+  color: var(--sf-error);
+  font-size: 12px;
+  margin: 10px 0 0;
+  min-height: 0;
+}
+
+.sf-modal-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+/* Combobox "Paciente / Oportunidade" (busca + criação inline) — nos modais de
+   criação rápida (Agendamento/Acompanhamento/Histórico) quando não há uma
+   oportunidade vinculada ao contato do WhatsApp aberto. */
+.sf-opp-combo {
+  position: relative;
+}
+
+.sf-opp-combo-list {
+  position: absolute;
+  z-index: 5;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  max-height: 210px;
+  overflow-y: auto;
+  background: var(--sf-surface);
+  border: 1px solid var(--sf-line);
+  border-radius: 12px;
+  box-shadow: var(--sf-sh);
+  padding: 4px;
+}
+
+.sf-opp-combo-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  width: 100%;
+  background: none;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+  padding: 7px 9px;
+  border-radius: 8px;
+  transition: background 0.12s ease;
+}
+
+.sf-opp-combo-item:hover,
+.sf-opp-combo-item-active {
+  background: var(--sf-surface-2);
+}
+
+.sf-opp-combo-name {
+  font-size: 13px;
+  color: var(--sf-ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.sf-opp-combo-sub {
+  margin-top: 1px;
+  font-family: var(--sf-font-mono);
+  font-size: 10.5px;
+  color: var(--sf-ink-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.sf-opp-combo-empty {
+  padding: 8px 9px;
+  font-size: 12px;
+  color: var(--sf-ink-3);
+}
+
+.sf-opp-combo-create {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  margin-top: 2px;
+  padding-top: 8px;
+  border: none;
+  border-top: 1px solid var(--sf-line);
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  padding-left: 9px;
+  padding-bottom: 7px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--sf-blue);
+  border-radius: 0 0 8px 8px;
+  transition: background 0.12s ease;
+}
+
+.sf-opp-combo-create:hover {
+  background: var(--sf-surface-2);
+}
+
+.sf-opp-combo-create svg {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+}
+
+/* Detalhe de acompanhamento — "Próxima Ação" / "Mensagem Sugerida" */
+.sf-followup-label {
+  margin-top: 0;
+}
+
+.sf-followup-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+/* Modal "Editar agendamento" (clique num item da Agenda do Dia) */
+.sf-agenda-status-note {
+  margin-bottom: 14px;
+  border-radius: 10px;
+  padding: 9px 12px;
+  font-size: 12.5px;
+  line-height: 1.45;
+  font-family: var(--sf-font-sans);
+}
+
+.sf-agenda-status-note-cancelado {
+  background: rgba(224, 36, 94, .08);
+  color: #c0245e;
+}
+
+.sf-agenda-status-note-concluido {
+  background: rgba(22, 163, 74, .10);
+  color: #15803d;
+}
+
+.sf-agenda-status-note-perdido {
+  background: rgba(249, 115, 22, .12);
+  color: #b45309;
+}
+
+.sf-agenda-close-btn {
+  flex: 0 0 auto;
+  margin-left: auto;
+  padding: 8px 22px;
+}
+
+.sf-agenda-payment-card {
+  margin-bottom: 4px;
+  border: 1px solid var(--sf-line-2);
+  background: var(--sf-surface-2);
+  border-radius: 12px;
+  padding: 10px 14px;
+}
+
+.sf-agenda-payment-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.sf-agenda-payment-label {
+  font-family: var(--sf-font-mono);
+  font-size: 12px;
+  color: var(--sf-ink-2);
+}
+
+.sf-agenda-payment-value-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sf-agenda-payment-value {
+  font-family: var(--sf-font-mono);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--sf-ink);
+}
+
+.sf-agenda-payment-pill {
+  border-radius: 9999px;
+  padding: 2px 8px;
+  font-family: var(--sf-font-mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.sf-agenda-payment-link {
+  margin-top: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: none;
+  border: none;
+  padding: 0;
+  font-family: var(--sf-font-mono);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--sf-blue);
+  cursor: pointer;
+}
+
+.sf-agenda-payment-link:hover {
+  text-decoration: underline;
+}
+
+.sf-modal-input-readonly {
+  display: flex;
+  align-items: center;
+  min-height: 37px;
+  background: var(--sf-surface-2);
+  color: var(--sf-ink-2);
+}
+
+#sf-wa-agenda-professional-field {
+  margin-top: 14px;
+}
+
+.sf-modal-grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.sf-agenda-edit-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px solid var(--sf-line);
+}
+
+.sf-agenda-cancel-appt {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border: none;
+  border-radius: 9999px;
+  padding: 8px 12px;
+  font-family: var(--sf-font-mono);
+  font-size: 12.5px;
+  font-weight: 500;
+  color: rgba(224, 36, 94, .75);
+  cursor: pointer;
+  transition: background .15s ease, color .15s ease;
+}
+
+.sf-agenda-cancel-appt:hover {
+  background: rgba(224, 36, 94, .08);
+  color: #e0245e;
+}
+
+.sf-agenda-cancel-appt svg {
+  width: 14px;
+  height: 14px;
+}
+
+.sf-agenda-save-btn {
+  flex: 0 0 auto;
+  padding: 10px 24px;
+}
+
+.sf-agenda-cancel-confirm-text {
+  font-family: var(--sf-font-mono);
+  font-size: 13px;
+  color: var(--sf-ink-2);
+}
+
+.sf-agenda-cancel-confirm-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.sf-agenda-cancel-confirm-actions .sf-modal-cancel {
+  flex: 0 0 auto;
+  padding: 8px 16px;
+}
+
+.sf-agenda-cancel-confirm-btn {
+  border-radius: 9999px;
+  border: 1.5px solid rgba(224, 36, 94, .4);
+  background: rgba(224, 36, 94, .06);
+  color: #e0245e;
+  padding: 8px 16px;
+  font-family: var(--sf-font-mono);
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background .15s ease;
+}
+
+.sf-agenda-cancel-confirm-btn:hover {
+  background: rgba(224, 36, 94, .12);
+}
+
+.sf-agenda-cancel-confirm-btn:disabled {
+  opacity: .6;
+  cursor: default;
+}
+
+.sf-followup-priority-badge {
+  font-family: var(--sf-font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 3px 10px;
+  border-radius: 9999px;
+}
+
+.sf-followup-action-box {
+  border: 1px solid var(--sf-line);
+  border-left: 3px solid var(--sf-ink-3);
+  background: var(--sf-surface-2);
+  border-radius: 10px;
+  padding: 12px 14px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--sf-ink);
+  margin-bottom: 14px;
+}
+
+.sf-followup-msg-box {
+  border: 1px solid #f5d565;
+  background: #fff8db;
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+
+.sf-followup-msg-text {
+  margin: 0;
+  white-space: pre-line;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: #5c4708;
+}
+
+.sf-followup-msg-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.sf-followup-copy-btn {
+  border: 1.5px solid #e0bc3a;
+  background: rgba(255, 255, 255, .7);
+  border-radius: 9999px;
+  padding: 7px 14px;
+  font-family: var(--sf-font-mono);
+  font-size: 12px;
+  font-weight: 500;
+  color: #7c5e10;
+  cursor: pointer;
+  transition: background .15s ease;
+}
+
+.sf-followup-copy-btn:hover {
+  background: #ffffff;
+}
+
+.sf-followup-wa-btn {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 9999px;
+  background: var(--sf-wa);
+  color: #ffffff;
+  padding: 7px 14px;
+  font-family: var(--sf-font-mono);
+  font-size: 12px;
+  font-weight: 500;
+  text-decoration: none;
+  transition: transform .15s ease;
+}
+
+.sf-followup-wa-btn:hover {
+  transform: translateY(-2px);
+}
+
+.sf-followup-wa-btn-sent {
+  background: #1f9e5c;
+  pointer-events: none;
+}
+
+.sf-modal-cancel {
+  flex: 1;
+  background: var(--sf-surface-2);
+  border: 1px solid var(--sf-line);
+  border-radius: 9999px;
+  padding: 10px;
+  font-family: var(--sf-font-mono);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--sf-ink-2);
+  cursor: pointer;
+  transition: all .15s ease;
+}
+
+.sf-modal-cancel:hover {
+  border-color: var(--sf-line-2);
+  color: var(--sf-ink);
+}
+
+.sf-modal-submit {
+  flex: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  background: var(--sf-grad);
+  color: white;
+  border: none;
+  font-family: var(--sf-font-mono);
+  font-weight: 500;
+  padding: 10px;
+  font-size: 13px;
+  box-shadow: var(--sf-sh-brand);
+  cursor: pointer;
+  transition: transform .15s ease;
+}
+
+.sf-modal-submit:hover {
+  transform: translateY(-2px);
+}
+
+.sf-modal-submit:disabled {
+  opacity: 0.6;
+  cursor: default;
+  transform: none;
+}
+
+/* Atalhos "Agenda do Dia" / "Acompanhamentos do Dia" */
+#sf-wa-day-shortcuts {
+  padding: 10px 16px;
+  background: var(--sf-surface);
+  border-bottom: 1px solid var(--sf-line);
+  flex-shrink: 0;
+}
+
+.sf-day-shortcut-row {
+  display: flex;
+  gap: 8px;
+}
+
+.sf-day-shortcut-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: var(--sf-surface-2);
+  border: 1px solid var(--sf-line);
+  border-radius: 9999px;
+  padding: 7px 10px;
+  font-family: var(--sf-font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--sf-ink-2);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.sf-day-shortcut-btn:hover {
+  border-color: var(--sf-line-2);
+  color: var(--sf-ink);
+}
+
+.sf-day-shortcut-btn.sf-active {
+  background: var(--sf-grad-soft);
+  border-color: var(--sf-blue);
+  color: var(--sf-blue);
+}
+
+.sf-day-shortcut-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 9999px;
+  background: var(--sf-blue);
+  color: #ffffff;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.sf-day-shortcut-btn.sf-active .sf-day-shortcut-count {
+  background: var(--sf-blue);
+}
+
+.sf-day-shortcut-panel {
+  margin-top: 8px;
+  max-height: 280px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--sf-line-2) transparent;
+}
+
+.sf-today-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sf-today-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--sf-surface-2);
+  border-radius: 10px;
+  padding: 7px 9px;
+}
+
+.sf-today-item-clickable {
+  cursor: pointer;
+  transition: background .15s ease;
+}
+
+.sf-today-item-clickable:hover {
+  background: var(--sf-surface-3);
+}
+
+.sf-today-time {
+  font-family: var(--sf-font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--sf-blue);
+  flex-shrink: 0;
+}
+
+.sf-today-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.sf-today-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--sf-ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sf-today-sub {
+  font-size: 10.5px;
+  color: var(--sf-ink-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sf-today-item-overdue {
+  background: rgba(224, 36, 94, .08);
+}
+
+.sf-today-item-overdue .sf-today-time {
+  color: var(--sf-red);
+}
+
+.sf-today-overdue-tag {
+  flex-shrink: 0;
+  font-family: var(--sf-font-mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--sf-red);
+  background: rgba(224, 36, 94, .12);
+  padding: 2px 7px;
+  border-radius: 9999px;
+}
+
+/* Rail de ícones — navegação rápida dentro do painel */
+#sf-wa-content-wrap {
+  position: relative;
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+#sf-wa-rail {
+  /* Oculto temporariamente a pedido do usuário. */
+  display: none !important;
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 34px;
+  z-index: 3;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding-top: 10px;
+  background: var(--sf-surface-2);
+  border-right: 1px solid var(--sf-line);
+}
+
+.sf-rail-btn {
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  border: none;
+  background: none;
+  color: var(--sf-ink-3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.sf-rail-btn:hover {
+  background: var(--sf-surface-3);
+  color: var(--sf-blue);
+}
+
+/* Login view (embutido no painel) */
+#sf-wa-login {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 32px 24px;
+  text-align: center;
+  animation: sf-rise .45s cubic-bezier(.22, 1, .36, 1) both;
+}
+
+.sf-login-logo {
+  width: 170px;
+  height: auto;
+  margin-bottom: 16px;
+}
+
+.sf-login-title {
+  font-family: var(--sf-font-mono);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--sf-ink);
+  margin: 0 0 20px;
+}
+
+#sf-wa-login-form {
+  width: 100%;
+  text-align: left;
+}
+
+#sf-wa-login-form label {
+  display: block;
+  font-family: var(--sf-font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--sf-ink-3);
+  margin: 0 0 4px;
+}
+
+#sf-wa-login-form input {
+  width: 100%;
+  border: 1.5px solid var(--sf-line-2);
+  border-radius: 12px;
+  background: var(--sf-surface);
+  padding: 8px 12px;
+  font-size: 13px;
+  color: var(--sf-ink);
+  margin-bottom: 14px;
+  outline: none;
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+
+#sf-wa-login-form input:focus {
+  border-color: var(--sf-blue);
+  box-shadow: 0 0 0 4px rgba(46, 107, 255, .10);
+}
+
+.sf-login-error {
+  color: var(--sf-error);
+  font-size: 12px;
+  margin: -6px 0 12px;
+  display: none;
+}
+
+#sf-wa-login-submit {
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  background: var(--sf-grad);
+  color: white;
+  border: none;
+  font-family: var(--sf-font-mono);
+  font-weight: 500;
+  padding: 10px;
+  font-size: 13px;
+  box-shadow: var(--sf-sh-brand);
+  cursor: pointer;
+  transition: transform .15s ease;
+}
+
+#sf-wa-login-submit:hover {
+  transform: translateY(-2px);
+}
+
+.sf-privacy-link {
+  display: block;
+  text-align: center;
+  font-family: var(--sf-font-mono);
+  font-size: 10px;
+  color: var(--sf-ink-3);
+  text-decoration: underline;
+  margin-top: 14px;
+}
+
+.sf-privacy-link:hover {
+  color: var(--sf-blue);
+}
+
+#sf-wa-login-submit:disabled {
+  opacity: 0.6;
+  cursor: default;
+  transform: none;
+}
+
+/* Barra de oportunidade — hero navy fixo, sempre visível (sem scroll) */
+#sf-wa-opportunity-bar {
+  position: relative;
+  background: var(--sf-navy);
+  color: #ffffff;
+  padding: 14px 16px;
+  flex-shrink: 0;
+  overflow: hidden;
+  border-bottom: 1px solid rgba(255, 255, 255, .08);
+  animation: sf-rise .35s cubic-bezier(.22, 1, .36, 1) both;
+}
+
+#sf-wa-opportunity-bar::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(200px 120px at 95% -30%, rgba(122, 60, 240, .5), transparent 60%),
+    radial-gradient(160px 120px at -5% 130%, rgba(41, 169, 255, .35), transparent 60%);
+}
+
+.sf-opp-bar-head {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.sf-opp-bar-avatar {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: var(--sf-grad);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--sf-font-mono);
+  font-size: 14px;
+  font-weight: 600;
+  color: #ffffff;
+  flex-shrink: 0;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, .14);
+}
+
+.sf-opp-bar-id {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sf-opp-bar-name {
+  margin: 0;
+  font-family: var(--sf-font-mono);
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #ffffff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#sf-wa-opportunity-bar .sf-status-badge,
+.sf-followup-opp-summary .sf-status-badge {
+  background: rgba(255, 255, 255, .14);
+}
+
+/* Mesmo resumo de oportunidade da barra fixa, só que em cartão dentro do
+   modal de detalhe do acompanhamento — precisa do próprio fundo navy porque
+   `opportunitySummaryHTML` usa texto branco (pensado pro hero escuro). */
+.sf-followup-opp-summary {
+  position: relative;
+  background: var(--sf-navy);
+  color: #ffffff;
+  border-radius: 14px;
+  padding: 14px 16px;
+  margin-bottom: 20px;
+}
+
+.sf-opp-bar-grid {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 14px;
+}
+
+.sf-opp-bar-cell {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+/* Potencial/Tipo vira info secundária (não ajuda durante o atendimento) —
+   ocupa a linha inteira, discreta, abaixo de telefone/origem. */
+.sf-opp-bar-cell-secondary {
+  grid-column: 1 / -1;
+  opacity: .65;
+}
+
+.sf-opp-bar-label {
+  font-family: var(--sf-font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgba(255, 255, 255, .5);
+  margin-bottom: 3px;
+}
+
+.sf-opp-bar-value {
+  font-size: 12.5px;
+  color: #ffffff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sf-opp-bar-potential-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sf-potential-bar.sf-potential-bar-sm {
+  flex: 1;
+  height: 5px;
+  background: rgba(255, 255, 255, .16);
+  margin: 0;
+}
+
+.sf-opp-bar-phone {
+  font-family: var(--sf-font-mono);
+  color: var(--sf-cyan);
+  font-weight: 600;
+}
+
+.sf-opp-bar-origin {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sf-origin-icon {
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: #ffffff;
+}
+
+.sf-origin-icon svg {
+  width: 11px;
+  height: 11px;
+}
+
+.sf-origin-letter {
+  font-family: var(--sf-font-sans);
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+/* Sections */
+#sf-wa-content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* Abre espaço pro rail só quando ele está visível (login/estado vazio não têm rail). */
+#sf-wa-rail:not(.sf-hidden-el) + #sf-wa-content {
+  padding-left: 34px;
+}
+
+/* Rail oculto temporariamente (ver #sf-wa-rail acima) — não reservar espaço. */
+#sf-wa-content {
+  padding-left: 0 !important;
+}
+
+#sf-wa-body {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  min-height: 0;
+  padding: 12px 0;
+  scrollbar-width: thin;
+  scrollbar-color: var(--sf-line-2) transparent;
+}
+
+/* Vinculados (tab no header) */
+#sf-wa-linked {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--sf-line-2) transparent;
+}
+
+.sf-linked-title {
+  font-family: var(--sf-font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--sf-ink-3);
+  margin: 0 0 12px;
+}
+
+.sf-linked-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sf-linked-item {
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  background: var(--sf-surface);
+  border: 1px solid var(--sf-line);
+  border-radius: 14px;
+  padding: 10px;
+  box-shadow: var(--sf-sh-sm);
+}
+
+.sf-linked-info {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.sf-linked-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--sf-ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sf-linked-whatsapp {
+  font-family: var(--sf-font-mono);
+  font-size: 11px;
+  color: var(--sf-blue);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sf-linked-phone {
+  font-size: 11px;
+  color: var(--sf-ink-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#sf-wa-body::-webkit-scrollbar,
+#sf-wa-linked::-webkit-scrollbar,
+.sf-pending-list::-webkit-scrollbar {
+  width: 7px;
+}
+
+#sf-wa-body::-webkit-scrollbar-thumb,
+#sf-wa-linked::-webkit-scrollbar-thumb,
+.sf-pending-list::-webkit-scrollbar-thumb {
+  background: var(--sf-line-2);
+  border-radius: 6px;
+}
+
+.sf-section {
+  padding: 0 16px 12px;
+  border-bottom: 1px solid var(--sf-surface-2);
+  margin-bottom: 4px;
+  animation: sf-rise .45s cubic-bezier(.22, 1, .36, 1) both;
+}
+
+.sf-section:last-child {
+  border-bottom: none;
+}
+
+.sf-section-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-family: var(--sf-font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--sf-ink-3);
+  margin: 0 0 8px;
+  padding-top: 12px;
+}
+
+.sf-section-title-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sf-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 50%;
+  background: var(--sf-surface-2);
+  color: var(--sf-ink-3);
+  cursor: pointer;
+  transition: background .15s ease, color .15s ease;
+}
+
+.sf-icon-btn:hover {
+  background: var(--sf-line-2);
+  color: var(--sf-ink);
+}
+
+.sf-icon-btn.sf-spinning svg {
+  animation: sf-spin 0.8s linear infinite;
+}
+
+.sf-field {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 10px;
+}
+
+.sf-field:last-child {
+  margin-bottom: 0;
+}
+
+.sf-field-label {
+  font-family: var(--sf-font-mono);
+  font-size: 10px;
+  color: var(--sf-ink-3);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 2px;
+}
+
+.sf-field-value {
+  font-size: 13px;
+  color: var(--sf-ink);
+  word-break: break-word;
+  line-height: 1.4;
+}
+
+.sf-field-value.sf-phone {
+  font-family: var(--sf-font-mono);
+  color: var(--sf-blue);
+  font-weight: 600;
+}
+
+.sf-field-value.sf-empty {
+  color: var(--sf-ink-3);
+  font-style: italic;
+}
+
+.sf-field-value.sf-context-quote {
+  display: block;
+  font-style: italic;
+  color: var(--sf-ink-2);
+}
+
+.sf-field-sub {
+  display: block;
+  margin-top: 2px;
+  font-family: var(--sf-font-mono);
+  font-size: 10px;
+  color: var(--sf-ink-3);
+}
+
+/* Copy button */
+.sf-copy-btn {
+  display: inline-flex;
+  align-items: center;
+  background: var(--sf-surface-2);
+  border: 1px solid var(--sf-line);
+  border-radius: 9999px;
+  cursor: pointer;
+  color: var(--sf-blue);
+  font-family: var(--sf-font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  padding: 3px 10px;
+  margin-top: 4px;
+  transition: all 0.15s ease;
+  width: fit-content;
+}
+
+.sf-copy-btn:hover {
+  background: var(--sf-surface);
+  border-color: var(--sf-blue);
+}
+
+.sf-copy-btn.copied {
+  color: var(--sf-green);
+  border-color: rgba(22, 163, 74, .35);
+  background: rgba(22, 163, 74, .08);
+}
+
+/* Potential bar */
+.sf-potential-bar {
+  width: 100%;
+  height: 6px;
+  background: var(--sf-surface-3);
+  border-radius: 3px;
+  overflow: hidden;
+  margin: 2px 0 4px;
+}
+
+.sf-potential-fill {
+  height: 100%;
+  border-radius: 3px;
+}
+
+.sf-potential-fill.sf-potential-fraco {
+  background: var(--sf-error);
+}
+
+.sf-potential-fill.sf-potential-medio {
+  background: var(--sf-amber);
+}
+
+.sf-potential-fill.sf-potential-forte {
+  background: var(--sf-green);
+}
+
+/* Status badge — dot + texto, fundo 10% / texto sólido (dot herda currentColor) */
+.sf-status-badge {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 6px;
+  font-family: var(--sf-font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 3px 10px;
+  border-radius: 9999px;
+  width: fit-content;
+}
+
+.sf-status-badge::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+
+.sf-status-badge.sf-status-perdido {
+  background: rgba(224, 36, 94, .10);
+  color: var(--sf-red);
+}
+
+.sf-status-badge.sf-status-convertido {
+  background: rgba(22, 163, 74, .10);
+  color: var(--sf-green);
+}
+
+.sf-status-badge.sf-status-agendado {
+  background: rgba(41, 169, 255, .12);
+  color: var(--sf-cyan);
+}
+
+.sf-status-badge.sf-status-em-atendimento {
+  background: rgba(217, 119, 6, .10);
+  color: var(--sf-amber);
+}
+
+.sf-status-badge.sf-status-novo-contato {
+  background: rgba(140, 140, 151, .12);
+  color: var(--sf-ink-3);
+}
+
+/* Status derivado de agendamento (Agendado/Remarcado/Concluído/Cancelado/
+   Não compareceu) — cores espelhando o web app. */
+.sf-status-badge.sf-sched-agendado {
+  background: rgba(41, 169, 255, .12);
+  color: var(--sf-cyan);
+}
+
+.sf-status-badge.sf-sched-remarcado {
+  background: rgba(217, 119, 6, .12);
+  color: var(--sf-amber);
+}
+
+.sf-status-badge.sf-sched-concluido {
+  background: rgba(22, 163, 74, .12);
+  color: var(--sf-green);
+}
+
+.sf-status-badge.sf-sched-cancelado {
+  background: rgba(224, 36, 94, .10);
+  color: var(--sf-red);
+}
+
+.sf-status-badge.sf-sched-perdido {
+  background: rgba(249, 115, 22, .14);
+  color: #f97316;
+}
+
+.sf-status-badge.sf-sched-outro {
+  background: rgba(140, 140, 151, .12);
+  color: var(--sf-ink-3);
+}
+
+/* Profile link / unlink */
+.sf-opportunity-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.sf-profile-link {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 8px;
+  background: var(--sf-grad);
+  color: white !important;
+  border-radius: 9999px;
+  font-family: var(--sf-font-mono);
+  font-size: 12px;
+  font-weight: 500;
+  text-decoration: none;
+  box-shadow: var(--sf-sh-brand);
+  transition: transform .15s ease;
+}
+
+.sf-profile-link:hover {
+  transform: translateY(-2px);
+}
+
+.sf-unlink-btn {
+  flex-shrink: 0;
+  background: var(--sf-surface);
+  color: var(--sf-error);
+  border: 1px solid rgba(239, 68, 68, .35);
+  border-radius: 9999px;
+  cursor: pointer;
+  font-family: var(--sf-font-mono);
+  font-size: 12px;
+  font-weight: 500;
+  padding: 8px 12px;
+  transition: background .15s ease;
+}
+
+.sf-unlink-btn:hover {
+  background: rgba(239, 68, 68, .08);
+}
+
+.sf-unlink-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* Activities / Schedulings */
+.sf-activity-list,
+.sf-scheduling-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sf-activity-item,
+.sf-scheduling-item {
+  overflow: hidden;
+  background: var(--sf-surface-2);
+  border: 1px solid var(--sf-line);
+  border-radius: 12px;
+  padding: 8px 10px;
+}
+
+.sf-activity-item-clickable,
+.sf-scheduling-item-clickable {
+  cursor: pointer;
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+
+.sf-activity-item-clickable:hover,
+.sf-scheduling-item-clickable:hover {
+  border-color: var(--sf-blue);
+  box-shadow: 0 0 0 3px rgba(46, 107, 255, .08);
+}
+
+/* Timeline única (atividades + agendamentos mesclados) */
+.sf-timeline-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  overflow: hidden;
+  background: var(--sf-surface-2);
+  border: 1px solid var(--sf-line);
+  border-radius: 12px;
+  padding: 8px 10px;
+  cursor: pointer;
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+
+.sf-timeline-item:hover {
+  border-color: var(--sf-blue);
+  box-shadow: 0 0 0 3px rgba(46, 107, 255, .08);
+}
+
+.sf-timeline-icon {
+  font-size: 14px;
+  line-height: 1;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.sf-timeline-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.sf-timeline-payment {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  font-size: 11.5px;
+  color: var(--sf-ink);
+}
+
+/* Banner de sugestão (item 9 — regra de negócio, sem IA generativa) */
+.sf-suggestion-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  border-radius: 10px;
+  padding: 8px 10px;
+  margin: 10px 0;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.sf-suggestion-icon {
+  flex-shrink: 0;
+  font-size: 14px;
+  line-height: 1.3;
+}
+
+.sf-suggestion-text {
+  color: #ffffff;
+}
+
+.sf-suggestion-info {
+  background: rgba(34, 197, 94, .16);
+}
+
+.sf-suggestion-warn {
+  background: rgba(245, 158, 11, .18);
+}
+
+.sf-suggestion-danger {
+  background: rgba(239, 68, 68, .18);
+}
+
+.sf-activity-detail-desc {
+  font-size: 14px;
+  color: var(--sf-ink);
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.sf-activity-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.sf-activity-date,
+.sf-scheduling-date {
+  font-family: var(--sf-font-mono);
+  font-size: 10px;
+  color: var(--sf-ink-3);
+  font-weight: 600;
+}
+
+.sf-activity-tag {
+  font-family: var(--sf-font-mono);
+  font-size: 9px;
+  color: var(--sf-cyan);
+  background: rgba(41, 169, 255, .12);
+  border-radius: 9999px;
+  padding: 2px 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  flex-shrink: 0;
+}
+
+.sf-activity-desc {
+  font-size: 12px;
+  color: var(--sf-ink);
+  line-height: 1.4;
+}
+
+.sf-scheduling-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.sf-scheduling-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.sf-scheduling-type {
+  display: block;
+  font-size: 11px;
+  color: var(--sf-ink-2);
+  margin-top: 2px;
+  word-break: break-word;
+}
+
+/* Pending opportunities picker (vincular contato) */
+.sf-pending-search {
+  width: 100%;
+  border: 1.5px solid var(--sf-line-2);
+  border-radius: 12px;
+  background: var(--sf-surface);
+  padding: 8px 12px;
+  font-size: 12px;
+  color: var(--sf-ink);
+  margin: 10px 0 8px;
+  outline: none;
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+
+.sf-pending-search:focus {
+  border-color: var(--sf-blue);
+  box-shadow: 0 0 0 4px rgba(46, 107, 255, .10);
+}
+
+.sf-pending-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 240px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--sf-line-2) transparent;
+}
+
+.sf-pending-item {
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  background: var(--sf-surface-2);
+  border: 1px solid var(--sf-line);
+  border-radius: 12px;
+  padding: 20px 10px;
+}
+
+.sf-pending-info {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.sf-pending-name {
+  font-size: 12px;
+  color: var(--sf-ink);
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sf-pending-phone {
+  font-family: var(--sf-font-mono);
+  font-size: 11px;
+  color: var(--sf-ink-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sf-pending-link-btn {
+  background: var(--sf-grad);
+  color: white;
+  border: none;
+  border-radius: 9999px;
+  cursor: pointer;
+  font-family: var(--sf-font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  padding: 8px 16px;
+  flex-shrink: 0;
+  box-shadow: var(--sf-sh-brand);
+  transition: transform .15s ease;
+}
+
+.sf-pending-link-btn:hover {
+  transform: translateY(-2px);
+}
+
+.sf-pending-link-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+  transform: none;
+}
+
+.sf-link-error {
+  color: var(--sf-error);
+  font-size: 11px;
+  margin: 0 0 8px;
+}
+
+/* Group members */
+.sf-member-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sf-member-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.sf-member-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--sf-grad);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--sf-font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  color: white;
+  flex-shrink: 0;
+}
+
+.sf-member-name {
+  color: var(--sf-ink);
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sf-member-phone {
+  font-family: var(--sf-font-mono);
+  color: var(--sf-ink-3);
+  font-size: 11px;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+/* No contact state */
+#sf-wa-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  margin: 16px;
+  padding: 32px 20px;
+  text-align: center;
+  color: var(--sf-ink-3);
+  border: 1px dashed var(--sf-line-2);
+  border-radius: 16px;
+  animation: sf-rise .45s cubic-bezier(.22, 1, .36, 1) both;
+}
+
+.sf-empty-logo {
+  width: 130px;
+  height: auto;
+  opacity: 0.35;
+  margin-bottom: 12px;
+}
+
+#sf-wa-empty p {
+  font-size: 13px;
+  line-height: 1.5;
+  margin: 0;
+}
+
+/* Footer */
+#sf-wa-footer {
+  padding: 10px 16px;
+  border-top: 1px solid var(--sf-line);
+  background: var(--sf-surface-2);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+}
+
+#sf-wa-footer span {
+  font-family: var(--sf-font-mono);
+  font-size: 10px;
+  color: var(--sf-ink-3);
+}
+
+/* Collapse tab */
+#sf-wa-collapse-tab {
+  position: fixed;
+  top: 50%;
+  right: 360px;
+  transform: translateY(-50%);
+  background: var(--sf-grad);
+  color: white;
+  border: none;
+  border-radius: 12px 0 0 12px;
+  width: 20px;
+  height: 56px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 99998;
+  transition: right 0.25s ease;
+  box-shadow: var(--sf-sh-brand);
+}
+
+#sf-wa-collapse-tab.sf-hidden-tab {
+  right: 0;
+}
+
+#sf-wa-collapse-tab svg {
+  transition: transform 0.25s;
+}
+
+#sf-wa-collapse-tab.sf-hidden-tab svg {
+  transform: rotate(180deg);
+}
+
+
+/* Loading spinner */
+.sf-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--sf-ink-3);
+  font-size: 12px;
+  padding: 16px;
+}
+
+.sf-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--sf-line-2);
+  border-top-color: var(--sf-blue);
+  border-radius: 50%;
+  animation: sf-spin 0.8s linear infinite;
+}
+
+@keyframes sf-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes sf-rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+
+  #sf-wa-login,
+  .sf-section,
+  #sf-wa-empty {
+    animation: none;
+  }
+}

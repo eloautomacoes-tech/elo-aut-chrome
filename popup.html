@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Elo Automações</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --cyan: #29a9ff;
+      --blue: #2e6bff;
+      --violet: #7a3cf0;
+      --grad: linear-gradient(118deg, #29a9ff 0%, #2e6bff 42%, #7a3cf0 100%);
+      --navy: #0c1230;
+      --bg: #fafafe;
+      --surface: #ffffff;
+      --surface-2: #f4f4f7;
+      --ink: #232333;
+      --ink-2: #5d5d6b;
+      --ink-3: #8c8c97;
+      --line: #dfdfe6;
+      --line-2: #cfcfd9;
+      --green: #16a34a;
+      --error: #ef4444;
+      --sh-brand: 0 18px 40px -16px rgba(46, 107, 255, .5);
+      --sh-sm: 0 1px 2px rgba(13, 19, 48, .05), 0 1px 3px rgba(13, 19, 48, .06);
+      --font-sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+      --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+    }
+
+    body {
+      width: 280px;
+      font-family: var(--font-sans);
+      font-size: 13px;
+      color: var(--ink);
+      background: var(--bg);
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .header {
+      position: relative;
+      background: var(--navy);
+      overflow: hidden;
+      color: white;
+      padding: 18px 16px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .header::before {
+      content: "";
+      position: absolute; inset: 0; pointer-events: none;
+      background:
+        radial-gradient(180px 110px at 95% -40%, rgba(122, 60, 240, .55), transparent 60%),
+        radial-gradient(150px 110px at -5% 140%, rgba(41, 169, 255, .4), transparent 60%);
+    }
+
+    .header img { position: relative; flex-shrink: 0; height: 30px; width: auto; }
+    .header div { position: relative; }
+
+    .header p {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--cyan);
+    }
+
+    .body { padding: 16px; }
+
+    .info-box {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      box-shadow: var(--sh-sm);
+      padding: 14px;
+      margin-bottom: 12px;
+    }
+
+    .info-box p { line-height: 1.6; color: var(--ink-2); }
+    .info-box strong { color: var(--ink); }
+
+    .step {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+
+    .step:last-child { margin-bottom: 0; }
+
+    .step-num {
+      background: var(--grad);
+      color: white;
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      margin-top: 1px;
+    }
+
+    .step p { font-size: 12px; line-height: 1.5; color: var(--ink-2); }
+
+    label {
+      display: block;
+      font-family: var(--font-mono);
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--ink-3);
+      margin-bottom: 4px;
+    }
+
+    input {
+      width: 100%;
+      border: 1.5px solid var(--line-2);
+      border-radius: 12px;
+      background: var(--surface);
+      padding: 8px 12px;
+      font-size: 13px;
+      color: var(--ink);
+      margin-bottom: 12px;
+      outline: none;
+      transition: border-color .15s ease, box-shadow .15s ease;
+    }
+
+    input:focus {
+      border-color: var(--blue);
+      box-shadow: 0 0 0 4px rgba(46, 107, 255, .10);
+    }
+
+    .btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      background: var(--grad);
+      color: white;
+      border: none;
+      border-radius: 9999px;
+      padding: 10px;
+      font-family: var(--font-mono);
+      font-size: 13px;
+      font-weight: 500;
+      box-shadow: var(--sh-brand);
+      cursor: pointer;
+      text-align: center;
+      text-decoration: none;
+      transition: transform .15s ease;
+    }
+
+    .btn:hover { transform: translateY(-2px); }
+    .btn:disabled { opacity: 0.6; cursor: default; transform: none; }
+
+    .btn-secondary {
+      background: var(--surface);
+      color: var(--error);
+      border: 1px solid rgba(239, 68, 68, .35);
+      box-shadow: none;
+    }
+
+    .btn-secondary:hover { background: rgba(239, 68, 68, .08); transform: none; }
+
+    .error-msg {
+      color: var(--error);
+      font-size: 12px;
+      margin: -4px 0 12px;
+      display: none;
+    }
+
+    .status-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--green);
+      flex-shrink: 0;
+      box-shadow: 0 0 0 3px rgba(22, 163, 74, .15);
+    }
+
+    .status-row span { font-size: 12px; color: var(--ink-2); }
+    .status-row strong { color: var(--ink); }
+
+    .version {
+      text-align: center;
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--ink-3);
+      margin-top: 12px;
+    }
+
+    .privacy-link {
+      display: block;
+      text-align: center;
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--ink-3);
+      text-decoration: underline;
+      margin-top: 4px;
+    }
+
+    .privacy-link:hover { color: var(--blue); }
+
+    .hidden { display: none; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <img src="assets/logo-sem-fundo2.png" alt="Elo Automações" />
+    <div>
+      <p>WhatsApp Web</p>
+    </div>
+  </div>
+
+  <div class="body">
+    <!-- Login -->
+    <div id="view-login">
+      <form id="login-form">
+        <label for="email">Email</label>
+        <input type="email" id="email" required autocomplete="username" />
+
+        <label for="password">Senha</label>
+        <input type="password" id="password" required autocomplete="current-password" />
+
+        <p class="error-msg" id="login-error"></p>
+
+        <button type="submit" class="btn" id="login-btn">Entrar</button>
+      </form>
+    </div>
+
+    <!-- Logged in -->
+    <div id="view-logged" class="hidden">
+      <div class="status-row">
+        <span class="status-dot"></span>
+        <span>Conectado como <strong id="logged-email"></strong></span>
+      </div>
+
+      <div class="info-box">
+        <div class="step">
+          <div class="step-num">1</div>
+          <p>Abra o <strong>WhatsApp Web</strong> em <code>web.whatsapp.com</code></p>
+        </div>
+        <div class="step">
+          <div class="step-num">2</div>
+          <p>Clique em qualquer <strong>contato ou conversa</strong></p>
+        </div>
+        <div class="step">
+          <div class="step-num">3</div>
+          <p>Os dados aparecerão no <strong>painel lateral</strong></p>
+        </div>
+      </div>
+
+      <button type="button" class="btn btn-secondary" id="logout-btn">Sair</button>
+    </div>
+
+    <p class="version">v1.0.0 · Painel de Contato para WhatsApp Web</p>
+    <a
+      class="privacy-link"
+      href="https://eloautomacoes.com.br/politica-de-privacidade"
+      target="_blank"
+      rel="noopener noreferrer"
+    >Política de Privacidade</a>
+  </div>
+
+  <script src="src/branding-shared.js"></script>
+  <script src="src/popup.js"></script>
+</body>
+</html>
