@@ -43,11 +43,29 @@
   let lastAgendaRendered = []; // itens da agenda efetivamente renderizados (já filtrados) — usados no clique
   let lastFollowUpsResult = null; // idem pra GET_FOLLOWUPS_TODAY
   let lastTimelineItems = []; // atividades + agendamentos mesclados na timeline única — clique por índice
+  let flashTimer = null; // timeout que esconde a faixa de confirmação (ver showFlash)
 
   // ─── Bootstrap ────────────────────────────────────────────────────────────
 
+  // Assinatura do painel. O plugin RD Elo (clone deste, apontando para o app
+  // Elo Odonto) usa o MESMO id de elemento: com os dois instalados só um
+  // renderiza — quem ganhar a corrida no carregamento da aba —, e o painel do
+  // outro app é visualmente idêntico. O sintoma aparece só nos links ("Abrir
+  // paciente" leva para o domínio dele). Daí o aviso no console.
+  const PANEL_BUILD = 'elo-aut';
+
   function init() {
-    if (document.getElementById(PLUGIN_ID)) return;
+    const existing = document.getElementById(PLUGIN_ID);
+    if (existing) {
+      if (existing.getAttribute('data-sf-build') !== PANEL_BUILD) {
+        console.warn(
+          '[WA-PANEL] Elo Aut não injetou: esta aba já tem o painel de outra extensão (%s). ' +
+          'Desative a outra em chrome://extensions e recarregue a aba.',
+          existing.getAttribute('data-sf-build') || 'RD Elo / versão antiga',
+        );
+      }
+      return;
+    }
     injectSidebar();
     checkAuth();
   }
@@ -68,6 +86,7 @@
 
   function onAuthenticated() {
     sidebar.querySelector('#sf-wa-logout-btn').classList.remove('sf-hidden-el');
+    sidebar.querySelector('#sf-wa-home-btn').classList.remove('sf-hidden-el');
     sidebar.querySelector('#sf-wa-refresh-btn').classList.remove('sf-hidden-el');
     sidebar.querySelector('#sf-wa-linked-toggle-btn').classList.remove('sf-hidden-el');
     sidebar.querySelector('#sf-wa-new-btn').classList.remove('sf-hidden-el');
@@ -114,6 +133,7 @@
     // Main sidebar
     sidebar = document.createElement('div');
     sidebar.id = PLUGIN_ID;
+    sidebar.setAttribute('data-sf-build', PANEL_BUILD);
     sidebar.innerHTML = buildSidebarHTML();
     document.body.appendChild(sidebar);
 
@@ -124,6 +144,7 @@
     sidebar.querySelector('#sf-wa-logout-btn').addEventListener('click', handleLogout);
     sidebar.querySelector('#sf-wa-linked-toggle-btn').addEventListener('click', toggleLinkedView);
     sidebar.querySelector('#sf-wa-refresh-btn').addEventListener('click', handleManualRefresh);
+    sidebar.querySelector('#sf-wa-home-btn').addEventListener('click', handleGoHome);
 
     // Dropdown "+ Novo"
     sidebar.querySelector('#sf-wa-new-btn').addEventListener('click', (e) => {
@@ -172,12 +193,14 @@
               <button type="button" class="sf-new-menu-item" id="sf-wa-new-opportunity-item" data-kind="opportunity">+ Nova Oportunidade</button>
             </div>
           </div>
+          <button id="sf-wa-home-btn" class="sf-hidden-el" title="Voltar ao início">${homeSVG()}</button>
           <button id="sf-wa-refresh-btn" class="sf-hidden-el" title="Atualizar agora">${refreshSVG()}</button>
           <button id="sf-wa-linked-toggle-btn" class="sf-hidden-el" title="Contatos vinculados">${linkedListSVG()}</button>
           <button id="sf-wa-logout-btn" class="sf-hidden-el" title="Sair">${logoutSVG()}</button>
           <button id="sf-wa-toggle-btn" title="Minimizar">${closeSVG()}</button>
         </div>
       </div>
+      <div id="sf-wa-flash" class="sf-hidden-el"></div>
       <div id="sf-wa-opportunity-bar" class="sf-hidden-el"></div>
       <div id="sf-wa-day-shortcuts" class="sf-hidden-el">
         <div class="sf-day-shortcut-row">
@@ -208,11 +231,23 @@
     `;
   }
 
+  // Tela inicial (nenhuma conversa aberta): além do aviso, a lista de leads —
+  // dá para abrir a ficha e disparar a campanha sem precisar caçar a conversa
+  // antes, já que quem abre a conversa é o "Enviar no WhatsApp" da própria
+  // ficha (`openChatInPlace`).
   function emptyStateHTML() {
     return `
-      <div id="sf-wa-empty">
-        <img class="sf-empty-logo" src="${logoForContext('logo-sem-fundo1.png')}" alt="Elo Automações" />
-        <p>Clique em um contato ou conversa para ver os dados disponíveis.</p>
+      <div id="sf-wa-home">
+        <div id="sf-wa-empty">
+          <img class="sf-empty-logo" src="${logoForContext('logo-sem-fundo1.png')}" alt="Elo Automações" />
+          <p>Clique em um contato ou conversa para ver os dados disponíveis.</p>
+        </div>
+        ${crmSectionHTML(
+          'Leads',
+          `<div id="sf-wa-home-leads" class="sf-loading"><div class="sf-spinner"></div> Buscando leads...</div>`,
+          'sf-wa-home-leads-section',
+          `<button type="button" id="sf-wa-home-leads-refresh" class="sf-icon-btn" title="Atualizar lista">${refreshSVG()}</button>`,
+        )}
       </div>
     `;
   }
@@ -222,6 +257,7 @@
   function renderLoginView() {
     if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
     sidebar.querySelector('#sf-wa-logout-btn').classList.add('sf-hidden-el');
+    sidebar.querySelector('#sf-wa-home-btn').classList.add('sf-hidden-el');
     sidebar.querySelector('#sf-wa-refresh-btn').classList.add('sf-hidden-el');
     sidebar.querySelector('#sf-wa-linked-toggle-btn').classList.add('sf-hidden-el');
     sidebar.querySelector('#sf-wa-new-btn').classList.add('sf-hidden-el');
@@ -562,6 +598,63 @@
     lastChatTitle = '';
     hideOpportunityBar();
     updateTimestamp('Aguardando contato...');
+    wireHomeLeadsRefresh();
+    loadHomeLeads();
+  }
+
+  // ─── Leads na tela inicial ────────────────────────────────────────────────
+  //
+  // Mesma lista da fila de pendentes, sem o botão "Vincular": vincular liga o
+  // lead ao contato do WhatsApp que está na tela, e aqui não há nenhum. Sobra
+  // o "Ver lead", que abre a ficha — e de lá a conversa.
+
+  function loadHomeLeads() {
+    if (!sidebar.querySelector('#sf-wa-home-leads')) return;
+    chrome.runtime.sendMessage({ type: 'GET_PENDING_OPPORTUNITIES' }, renderHomeLeadsResult);
+  }
+
+  function wireHomeLeadsRefresh() {
+    const btn = sidebar.querySelector('#sf-wa-home-leads-refresh');
+    if (!btn) return;
+
+    btn.addEventListener('click', () => {
+      if (btn.classList.contains('sf-spinning')) return;
+      btn.classList.add('sf-spinning');
+
+      const el = sidebar.querySelector('#sf-wa-home-leads');
+      if (el) {
+        el.className = 'sf-loading';
+        el.innerHTML = `<div class="sf-spinner"></div> Buscando leads...`;
+      }
+
+      chrome.runtime.sendMessage({ type: 'GET_PENDING_OPPORTUNITIES' }, (result) => {
+        btn.classList.remove('sf-spinning');
+        renderHomeLeadsResult(result);
+      });
+    });
+  }
+
+  function renderHomeLeadsResult(result) {
+    // Sumiu do DOM = abriram uma conversa enquanto a resposta vinha.
+    const el = sidebar.querySelector('#sf-wa-home-leads');
+    if (!el) return;
+    el.className = '';
+
+    if (!result || !result.ok) {
+      const msg = result && result.error === 'not_authenticated'
+        ? 'Faça login na extensão (ícone na barra do Chrome) para ver os leads.'
+        : 'Erro ao buscar os leads.';
+      el.innerHTML = `<span class="sf-field-value sf-empty">${escHtml(msg)}</span>`;
+      return;
+    }
+
+    if (result.opportunities.length === 0) {
+      el.innerHTML = `<span class="sf-field-value sf-empty">Nenhum lead pendente.</span>`;
+      return;
+    }
+
+    el.innerHTML = renderPendingListHTML(result.opportunities, { withLink: false });
+    wirePendingList('', el);
   }
 
   function renderContact(d) {
@@ -654,6 +747,15 @@
     // Sem contato detectado (force=true cai direto em renderEmpty, sem passar
     // por fetchCRMData) — nada dispara stopManualRefreshSpin, então garante aqui.
     if (!currentContact.name) stopManualRefreshSpin();
+  }
+
+  // Botão "Voltar ao início": mostra a tela inicial (logo + lista de leads)
+  // independente do que estiver aberto no WhatsApp — diferente do refresh, que
+  // re-escaneia a conversa atual.
+  function handleGoHome() {
+    if (isLinkedView) toggleLinkedView();
+    closeCreateDropdown();
+    renderEmpty();
   }
 
   function renderCRMResult(result, name) {
@@ -766,27 +868,30 @@
     wirePendingList(name);
   }
 
-  function renderPendingListHTML(opportunities) {
+  function renderPendingListHTML(opportunities, { withLink = true } = {}) {
     return `
-      <input type="text" id="sf-wa-pending-search" class="sf-pending-search" placeholder="Filtrar por nome..." />
+      <input type="text" class="sf-pending-search" placeholder="Filtrar por nome..." />
       <div class="sf-pending-list">
         ${opportunities.map(o => `
           <div class="sf-pending-item" data-name="${escHtml(o.name)}">
             <div class="sf-pending-info">
-              <span class="sf-pending-name">${escHtml(o.name)}</span>
+              <span class="sf-pending-name" title="${escHtml(o.name)}">${escHtml(o.name)}</span>
               ${o.phone ? `<span class="sf-pending-phone">${escHtml(o.phone)}</span>` : ''}
             </div>
-            <button type="button" class="sf-pending-link-btn" data-id="${o.id}">Vincular</button>
+            <div class="sf-pending-actions">
+              <button type="button" class="sf-pending-view-btn" data-id="${o.id}">Ver lead</button>
+              ${withLink ? `<button type="button" class="sf-pending-link-btn" data-id="${o.id}">Vincular</button>` : ''}
+            </div>
           </div>`).join('')}
       </div>
     `;
   }
 
-  function wirePendingList(name) {
-    const el = sidebar.querySelector('#sf-wa-pending-list');
+  function wirePendingList(name, container) {
+    const el = container || sidebar.querySelector('#sf-wa-pending-list');
     if (!el) return;
 
-    const search = el.querySelector('#sf-wa-pending-search');
+    const search = el.querySelector('.sf-pending-search');
     if (search) {
       search.addEventListener('input', () => {
         const term = search.value.trim().toLowerCase();
@@ -799,6 +904,12 @@
 
     el.querySelectorAll('.sf-pending-link-btn').forEach(btn => {
       btn.addEventListener('click', () => handleLinkOpportunity(btn, name));
+    });
+
+    el.querySelectorAll('.sf-pending-view-btn').forEach(btn => {
+      const item = btn.closest('.sf-pending-item');
+      const fallbackName = item ? item.getAttribute('data-name') : '';
+      btn.addEventListener('click', () => openLeadModal(Number(btn.getAttribute('data-id')), fallbackName));
     });
   }
 
@@ -825,6 +936,394 @@
 
       fetchCRMData(name);
     });
+  }
+
+  // ─── Ficha do lead + envio de campanha ────────────────────────────────────
+  //
+  // Aberta pelo botão "Ver lead" da fila de pendentes, SEM vincular nada: é
+  // justamente a tela onde o operador ainda decide se aquele lead é o contato
+  // aberto na conversa. Mostra o momento do funil, os dados de contato e a
+  // próxima ação; embaixo, escolhe-se uma Campanha ativa, a mensagem sugerida
+  // dela cai no campo (editável) e vai pro WhatsApp.
+
+  function openLeadModal(opportunityId, fallbackName) {
+    const overlay = openModal(fallbackName || 'Lead', 'Carregando...', `
+      <div class="sf-modal-body" id="sf-wa-lead-body">
+        <div class="sf-loading"><div class="sf-spinner"></div> Carregando ficha do lead...</div>
+      </div>
+    `, 'Ficha do lead');
+
+    chrome.runtime.sendMessage({ type: 'GET_LEAD_DETAIL', opportunityId }, (result) => {
+      if (!overlay.isConnected) return; // modal já fechado quando a resposta chegou
+
+      if (!result || !result.ok || !result.lead) {
+        const body = overlay.querySelector('#sf-wa-lead-body');
+        const msg = result && result.error === 'not_authenticated'
+          ? 'Faça login na extensão (clique no ícone na barra do Chrome) para ver a ficha do lead.'
+          : (result && result.error) || 'Erro ao carregar a ficha do lead.';
+        body.innerHTML = `<span class="sf-field-value sf-empty">${escHtml(msg)}</span>`;
+        return;
+      }
+
+      renderLeadModal(overlay, result.lead);
+    });
+  }
+
+  function renderLeadModal(overlay, lead) {
+    const titleEl = overlay.querySelector('.sf-modal-title');
+    const subtitleEl = overlay.querySelector('.sf-modal-subtitle');
+    if (titleEl) titleEl.textContent = lead.name;
+    if (subtitleEl) subtitleEl.textContent = lead.phone ? formatPhone(lead.phone) : 'Sem telefone cadastrado';
+
+    const cityUf = [lead.city, lead.state].filter(Boolean).join(' / ');
+    const body = overlay.querySelector('#sf-wa-lead-body');
+
+    body.innerHTML = `
+      ${leadFunnelHTML(lead.funnel)}
+      <div class="sf-lead-grid">
+        ${leadCellHTML('Telefone', lead.phone ? formatPhone(lead.phone) : '', 'sf-lead-value-mono')}
+        ${leadCellHTML('Origem', lead.sourceLabel)}
+        ${lead.isProspect
+          ? leadCellHTML('Toques enviados', `${lead.contactCount} de 6`, 'sf-lead-value-mono')
+          : leadCellHTML('Potencial', lead.potential)}
+        ${leadCellHTML('Responsável pela conta', lead.contactName)}
+        ${leadCellHTML('Responsável interno', lead.responsibleName)}
+        ${leadCellHTML('Cidade / UF', cityUf)}
+        ${leadCellHTML('E-mail', lead.email)}
+        ${lead.instagram ? leadCellHTML('Instagram', lead.instagram) : ''}
+        ${lead.website ? leadCellHTML('Site', lead.website) : ''}
+        ${leadCellHTML('Cadastrado em', formatIsoDate(lead.createdAt), 'sf-lead-value-mono')}
+        ${leadCellHTML('Atualizado em', formatIsoDate(lead.lastModifiedAt), 'sf-lead-value-mono')}
+        ${lead.lostReasonLabel ? leadCellHTML('Motivo da perda', lead.lostReasonLabel) : ''}
+      </div>
+      ${lead.notes ? `
+        <span class="sf-modal-label">Observações</span>
+        <div class="sf-lead-notes">${escHtml(lead.notes)}</div>` : ''}
+      ${leadNextActionHTML(lead)}
+      ${leadCampaignHTML(lead)}
+      <a class="sf-lead-open-link" href="${escHtml(lead.profileUrl)}" title="${escHtml(lead.profileUrl)}" target="_blank" rel="noopener noreferrer">Abrir ficha completa no sistema</a>
+    `;
+
+    wireLeadCampaign(overlay, lead);
+  }
+
+  function leadCellHTML(label, value, extraClass = '') {
+    return `
+      <div class="sf-lead-cell">
+        <span class="sf-lead-label">${escHtml(label)}</span>
+        ${value
+          ? `<span class="sf-lead-value ${extraClass}">${escHtml(value)}</span>`
+          : `<span class="sf-lead-value sf-empty">—</span>`}
+      </div>`;
+  }
+
+  // Momento do funil: etapa atual + trilha de progresso. `step` vem nulo em
+  // desfecho lateral (Perdido/Cancelado), que não tem posição na sequência.
+  function leadFunnelHTML(funnel) {
+    if (!funnel) return '';
+    const total = funnel.total || 0;
+    const step = funnel.step || 0;
+    const track = Array.from({ length: total }, (_, i) =>
+      `<span class="sf-lead-step${i < step ? ' sf-lead-step-done' : ''}"></span>`).join('');
+
+    return `
+      <div class="sf-lead-funnel">
+        <div class="sf-lead-funnel-head">
+          <span class="sf-lead-funnel-stage">${escHtml(funnel.label)}</span>
+          ${step ? `<span class="sf-lead-funnel-count">${step} de ${total}</span>` : ''}
+        </div>
+        ${total ? `<div class="sf-lead-funnel-track">${track}</div>` : ''}
+        ${funnel.kindLabel ? `<span class="sf-lead-funnel-kind">${escHtml(funnel.kindLabel)}</span>` : ''}
+      </div>
+    `;
+  }
+
+  function leadNextActionHTML(lead) {
+    const na = lead.nextAction;
+    if (!na) return '';
+    const when = na.date ? formatDateLabel(na.date) : '';
+    return `
+      <span class="sf-modal-label">Próxima ação</span>
+      <div class="sf-lead-action-box">
+        <div class="sf-lead-action-head">
+          <span class="sf-lead-action-type">${escHtml(na.typeLabel || '—')}</span>
+          ${when ? `<span class="sf-lead-action-date">${escHtml(when)}</span>` : ''}
+        </div>
+        ${na.description ? `<p class="sf-lead-action-desc">${escHtml(na.description)}</p>` : ''}
+        ${na.suggestionMessage
+          ? `<button type="button" class="sf-lead-use-suggestion">Usar a mensagem desta ação</button>`
+          : ''}
+      </div>
+    `;
+  }
+
+  function leadCampaignHTML(lead) {
+    return `
+      <div class="sf-lead-campaign">
+        <span class="sf-modal-label">Campanha</span>
+        ${customSelectHTML({ name: 'campaign_id', placeholder: 'Carregando campanhas...' })}
+        <span class="sf-modal-label">Mensagem</span>
+        <textarea id="sf-wa-lead-msg" rows="6" class="sf-modal-input sf-modal-textarea sf-lead-msg"
+                  placeholder="Escolha uma campanha para carregar a mensagem sugerida — dá para editar antes de enviar."></textarea>
+        <p class="sf-lead-hint sf-lead-hint-warn" id="sf-wa-lead-msg-hint"></p>
+        <div class="sf-lead-msg-actions">
+          <button type="button" class="sf-lead-copy-btn">Copiar</button>
+          <button type="button" class="sf-lead-wa-btn"${lead.phone ? '' : ' disabled'}>Enviar no WhatsApp</button>
+        </div>
+        ${lead.phone ? '' : `<p class="sf-lead-hint">Lead sem telefone cadastrado — não dá para abrir a conversa.</p>`}
+      </div>
+    `;
+  }
+
+  // Emojis (blocos Unicode de pictogramas/símbolos/bandeiras + seletor de
+  // variação/ZWJ que os combina) e URLs cru — a mensagem de campanha vira
+  // texto simples, sem os links de rastreio/mídia que antes entravam
+  // colados no corpo (ver `buildCampaignMessage` abaixo).
+  function stripLinksAndEmojis(text) {
+    return String(text || '')
+      .replace(/https?:\/\/\S+/gi, '')
+      .replace(/\bwww\.\S+/gi, '')
+      .replace(/[\u{1F1E6}-\u{1F1FF}\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}️‍]/gu, '')
+      .split('\n')
+      .map(line => line.replace(/[ \t]+$/g, ''))
+      .join('\n')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+  }
+
+  // O app grava o texto da campanha e o link separados — mas o envio por
+  // WhatsApp agora leva só o texto (sem links, sem emojis; ver
+  // `stripLinksAndEmojis`), que segue editável até o clique em Enviar.
+  function buildCampaignMessage(campaign, lead) {
+    const clean = stripLinksAndEmojis(campaign.messageText);
+    return applyLeadPlaceholders(clean, lead);
+  }
+
+  // ─── Variáveis {{...}} do texto da campanha ───────────────────────────────
+  //
+  // O texto é escrito uma vez em /campanhas e enviado para muitos leads, então
+  // vem com marcadores (`Olá, Dra. {{Nome}}!`). A troca acontece aqui, no envio,
+  // porque é o único ponto que conhece o lead. Marcador desconhecido ou sem dado
+  // fica INTACTO no texto — sumir com ele produziria "Olá, Dra. !" sem ninguém
+  // perceber; deixado à vista, o operador corrige antes de mandar.
+  //
+  // Nome da variável é comparado sem acento, sem caixa e sem espaços:
+  // {{Nome}}, {{ nome }} e {{NOME}} são a mesma coisa.
+
+  function normalizePlaceholderKey(key) {
+    return key
+      .trim()
+      .toLowerCase()
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .replace(/[\s-]+/g, '_');
+  }
+
+  function leadPlaceholderValues(lead) {
+    // `contactName` é a pessoa ("Responsável pela conta"); `name` é a clínica.
+    // Saudação pede a pessoa — a clínica entra só como último recurso, e nesse
+    // caso `applyLeadPlaceholders` avisa.
+    const person = (lead.contactName || '').trim();
+    const company = (lead.name || '').trim();
+    const greeting = person || company;
+
+    return {
+      nome: greeting,
+      primeiro_nome: greeting.split(/\s+/)[0] || '',
+      contato: person,
+      clinica: company,
+      empresa: company,
+      cidade: (lead.city || '').trim(),
+      estado: (lead.state || '').trim(),
+      uf: (lead.state || '').trim(),
+      telefone: lead.phone ? formatPhone(lead.phone) : '',
+    };
+  }
+
+  /** Troca as variáveis e devolve `{ text, notes }` — `notes` alimenta o aviso do modal. */
+  function applyLeadPlaceholders(text, lead) {
+    const values = leadPlaceholderValues(lead);
+    const missing = new Set();
+    const usedCompanyAsPerson = { flag: false };
+
+    const result = String(text || '').replace(/\{\{\s*([^{}]+?)\s*\}\}/g, (token, rawKey) => {
+      const key = normalizePlaceholderKey(rawKey);
+      const value = values[key];
+      if (!value) { missing.add(token.trim()); return token; }
+      if ((key === 'nome' || key === 'primeiro_nome') && !lead.contactName) usedCompanyAsPerson.flag = true;
+      return value;
+    });
+
+    const notes = [];
+    if (usedCompanyAsPerson.flag) {
+      notes.push('Lead sem "Responsável pela conta" — o nome usado foi o da clínica. Confira o tratamento antes de enviar.');
+    }
+    if (missing.size) {
+      notes.push(`Sem dado para ${[...missing].join(', ')} — preencha à mão.`);
+    }
+    return { text: result, notes };
+  }
+
+  /** Linha de aviso embaixo da mensagem — variáveis sem dado ou falha ao abrir a conversa. */
+  function setLeadHint(overlay, message) {
+    const hint = overlay.querySelector('#sf-wa-lead-msg-hint');
+    if (!hint) return;
+    hint.textContent = message;
+    hint.style.display = message ? 'block' : 'none';
+  }
+
+  /** Escreve no campo e atualiza o aviso de variáveis. */
+  function setLeadMessage(overlay, filled) {
+    const textarea = overlay.querySelector('#sf-wa-lead-msg');
+    if (!textarea) return;
+
+    textarea.value = filled ? filled.text : '';
+    setLeadHint(overlay, ((filled && filled.notes) || []).join(' '));
+  }
+
+  function wireLeadCampaign(overlay, lead) {
+    const widget = overlay.querySelector('.sf-lead-campaign .sf-select');
+    const textarea = overlay.querySelector('#sf-wa-lead-msg');
+    if (!widget || !textarea) return;
+
+    const valueEl = widget.querySelector('.sf-select-value');
+    let campaigns = [];
+    // Nome da campanha escolhida — vai junto do envio só para aparecer na
+    // linha do tempo ("Campanha X"). Fica nulo quando o texto veio da próxima
+    // ação ou foi digitado à mão.
+    let selectedCampaignName = null;
+
+    chrome.runtime.sendMessage({ type: 'GET_CAMPAIGNS' }, (result) => {
+      if (!widget.isConnected) return;
+
+      if (!result || !result.ok) { valueEl.textContent = 'Erro ao carregar campanhas'; return; }
+      campaigns = result.campaigns || [];
+      if (!campaigns.length) { valueEl.textContent = 'Nenhuma campanha ativa'; return; }
+
+      // Campanha de outro canal continua na lista (o texto serve), mas vem
+      // marcada — o envio daqui é sempre WhatsApp.
+      const options = [
+        { id: '', name: 'Selecione a campanha...' },
+        ...campaigns.map(c => ({
+          id: c.id,
+          name: c.channel === 'WHATSAPP' ? c.name : `${c.name} · ${c.channelLabel}`,
+        })),
+      ];
+
+      wireCustomSelect(widget, options, {
+        value: '',
+        onChange: (id) => {
+          const campaign = campaigns.find(c => String(c.id) === String(id));
+          selectedCampaignName = campaign ? campaign.name : null;
+          setLeadMessage(overlay, campaign ? buildCampaignMessage(campaign, lead) : null);
+        },
+      });
+    });
+
+    const useBtn = overlay.querySelector('.sf-lead-use-suggestion');
+    if (useBtn) {
+      useBtn.addEventListener('click', () => {
+        // Mesmas variáveis da campanha: a mensagem da próxima ação também é
+        // escrita antes de saber para quem vai.
+        selectedCampaignName = null;
+        setLeadMessage(overlay, applyLeadPlaceholders(lead.nextAction.suggestionMessage, lead));
+        textarea.focus();
+      });
+    }
+
+    const copyBtn = overlay.querySelector('.sf-lead-copy-btn');
+    copyBtn.addEventListener('click', () => {
+      const text = textarea.value.trim();
+      if (!text) { textarea.focus(); return; }
+      navigator.clipboard.writeText(text).then(() => {
+        copyBtn.textContent = 'Copiado!';
+        setTimeout(() => { if (copyBtn.isConnected) copyBtn.textContent = 'Copiar'; }, 2000);
+      });
+    });
+
+    const waBtn = overlay.querySelector('.sf-lead-wa-btn');
+    // Abre a conversa do telefone DO LEAD (não a que está na tela) aqui mesmo
+    // no WhatsApp Web, sem reload e sem aba nova — ver `openChatInPlace`. Em
+    // seguida, o MESMO clique avança o funil, assume o lead e fecha o modal,
+    // que cobre justamente a conversa que a pessoa precisa conferir antes de
+    // apertar Enter.
+    //
+    // O funil avança mesmo quando a conversa não abre (pedido explícito: o
+    // clique é o registro do toque, e travar o funil por causa do DOM do
+    // WhatsApp deixava o operador sem saída). O que NÃO acontece nesse caso é
+    // o vínculo: `chatOpened` falso significa que a conversa na tela não é
+    // comprovadamente a do lead, e vincular ali grudaria a oportunidade na
+    // conversa errada. O motivo da falha vai para o rodapé e para o console.
+    waBtn.addEventListener('click', async () => {
+      const text = textarea.value.trim();
+      if (!text) { textarea.focus(); return; }
+
+      waBtn.disabled = true;
+      waBtn.textContent = 'Abrindo conversa...';
+      setLeadHint(overlay, '');
+
+      const chat = await openChatInPlace(lead.phone, text);
+      if (chat.ok) {
+        waBtn.classList.add('sf-lead-wa-btn-sent');
+      } else {
+        // O modal fecha de todo jeito, e fecharia levando a mensagem junto —
+        // ela vai para a área de transferência para poder ser colada à mão.
+        try { await navigator.clipboard.writeText(text); } catch (_) { /* sem clipboard, resta o console */ }
+        console.warn('[WA-PANEL] Mensagem que ficou na área de transferência:', text);
+      }
+
+      waBtn.textContent = 'Atualizando o CRM...';
+      const result = await registerLeadSend(lead, selectedCampaignName, chat.chatOpened === true);
+
+      closeModal();
+      const summary = leadSendSummary(chat, result);
+      updateTimestamp(summary);
+      showFlash(summary, result && result.ok ? 'ok' : 'error');
+      if (!chat.ok) console.warn('[WA-PANEL] Funil atualizado sem abrir a conversa:', chat.reason);
+      if (result && result.notes && result.notes.length) {
+        console.warn('[WA-PANEL] Envio registrado com ressalvas:', result.notes);
+      }
+    });
+  }
+
+  /**
+   * Registra o envio no CRM: avança o funil, atribui o lead a quem enviou e —
+   * só quando `canLink` — vincula a oportunidade à conversa aberta.
+   *
+   * O vínculo usa o TÍTULO da conversa — nome do contato salvo ou, no caso
+   * comum do lead de scraping, o próprio número — porque é por ele que
+   * `LOOKUP_CONTACT` reencontra o registro nas próximas aberturas. Só cai no
+   * telefone da ficha se o cabeçalho não puder ser lido.
+   */
+  function registerLeadSend(lead, campaignName, canLink) {
+    const whatsappName = canLink
+      ? (scrapeContact().name || formatPhone(lead.phone) || lead.phone)
+      : null;
+
+    return new Promise((resolve) => {
+      chrome.runtime.sendMessage({
+        type: 'REGISTER_WHATSAPP_SEND',
+        opportunityId: lead.id,
+        whatsappName,
+        campaignName: campaignName || null,
+      }, resolve);
+    });
+  }
+
+  /** Linha do rodapé depois do envio — o modal já fechou, é o único retorno visível. */
+  function leadSendSummary(chat, result) {
+    if (!result || !result.ok) {
+      return `Funil NÃO atualizado: ${(result && result.error) || 'falha ao falar com a API'}`;
+    }
+
+    const parts = [
+      result.advanced ? `funil em "${result.stageLabel}"` : `funil mantido em "${result.stageLabel}"`,
+      result.assigned ? 'lead atribuído a você' : null,
+      result.linkedName ? 'conversa vinculada' : null,
+      chat.ok ? null : 'a conversa não abriu (mensagem copiada) — veja o console',
+      chat.warning ? 'confira o texto no campo antes de enviar' : null,
+    ].filter(Boolean);
+
+    return `Envio registrado — ${parts.join(' · ')}`;
   }
 
   function crmSectionHTML(title, inner, id = '', actionsHTML = '') {
@@ -868,7 +1367,7 @@
     if (!contact) return '';
     return `
       <div class="sf-opportunity-actions">
-        ${contact.profileUrl ? `<a class="sf-profile-link" href="${escHtml(contact.profileUrl)}" target="_blank" rel="noopener noreferrer">Abrir paciente ↗</a>` : ''}
+        ${contact.profileUrl ? `<a class="sf-profile-link" href="${escHtml(contact.profileUrl)}" title="${escHtml(contact.profileUrl)}" target="_blank" rel="noopener noreferrer">Abrir paciente ↗</a>` : ''}
         ${contact.id ? `<button type="button" class="sf-unlink-btn" data-id="${contact.id}">Desvincular</button>` : ''}
       </div>
     `;
@@ -1264,7 +1763,7 @@
 
   // Popula e liga o dropdown (recebe o container `.sf-select`). `options` é uma
   // lista [{ id, name }]; `value` marca a seleção inicial (id vazio = placeholder).
-  function wireCustomSelect(widget, options, { value = '' } = {}) {
+  function wireCustomSelect(widget, options, { value = '', onChange = null } = {}) {
     if (!widget) return;
     const hidden = widget.querySelector('input[type="hidden"]');
     const trigger = widget.querySelector('.sf-select-trigger');
@@ -1302,7 +1801,14 @@
     };
 
     menu.querySelectorAll('.sf-select-item').forEach(it => {
-      it.addEventListener('click', () => { setValue(it.getAttribute('data-value')); closeMenu(); });
+      it.addEventListener('click', () => {
+        const val = it.getAttribute('data-value');
+        setValue(val);
+        closeMenu();
+        // Só no clique: a seleção inicial (`setValue(value)` abaixo) não dispara
+        // onChange, pra não sobrescrever campo já preenchido ao montar o modal.
+        if (onChange) onChange(hidden.value);
+      });
     });
 
     setValue(value);
@@ -1956,18 +2462,473 @@
 
   // Mesma regra do Front-End (`waLink` em lib/opportunities/format.ts): só
   // dígitos, prefixa DDI 55 quando o telefone vem sem ele.
-  function buildFollowUpWaLink(phone, text) {
+  function waDigits(phone) {
     if (!phone) return null;
     let digits = EloMasks.onlyDigits(phone);
     if (!digits) return null;
     if (digits.length <= 11) digits = `55${digits}`;
-    return `https://wa.me/${digits}?text=${encodeURIComponent(text)}`;
+    return digits;
+  }
+
+  // ─── Abrir a conversa NA PRÓPRIA ABA, sem recarregar ──────────────────────
+  //
+  // `wa.me`/`web.whatsapp.com/send` é navegação de verdade: seja em aba nova ou
+  // na mesma aba, o WhatsApp Web inteiro sobe do zero (alguns segundos de tela
+  // branca). Como o painel roda DENTRO da aba já logada, dá para trocar de
+  // conversa pela própria interface — buscar o número na lista lateral, abrir o
+  // primeiro resultado e escrever no campo de mensagem — sem nenhum reload.
+  //
+  // ⚠️ Isso depende do DOM do WhatsApp, que é ofuscado e muda a cada release
+  // (mesma ressalva de docs/fase1-scraping-whatsapp.md). Por isso cada passo
+  // tenta uma LISTA de seletores, tem timeout, e a falha devolve o motivo em
+  // texto — que vai para o console (`[WA-PANEL]`) e para a tela. Nada de cair
+  // em `wa.me`: aquele link sai do WhatsApp Web (passa pelo `api.whatsapp.com`,
+  // com o pop-up "Abrir WhatsApp?") justamente o que não se quer aqui.
+  //
+  // O texto entra no campo mas NÃO é enviado — quem aperta Enter é a pessoa,
+  // depois de ver na tela que é a conversa certa. Mensagem a cliente é
+  // irreversível e a busca por número pode, em tese, abrir o contato errado.
+
+  const CHAT_SWITCH_TIMEOUT_MS = 6000;
+  // Tempo que o primeiro resultado precisa ficar parado para ser considerado
+  // "a lista já filtrou" — sem isso o clique pega a lista velha, ainda não
+  // reordenada pela busca.
+  const CHAT_LIST_SETTLE_MS = 500;
+  // Painel "Nova conversa" é animação local, não rede — se não abriu nesse
+  // tempo, o botão clicado não era ele.
+  const NEW_CHAT_PANEL_TIMEOUT_MS = 3000;
+  // Quanto se espera o editor de mensagem exibir o que foi colado. É render
+  // local (Lexical), não rede — passou disso, o `paste` não pegou mesmo.
+  const EDITOR_SETTLE_TIMEOUT_MS = 1500;
+
+  // Achar os campos por SELETOR não se sustenta: a busca já foi
+  // `div[contenteditable][data-tab="3"]` e hoje pode ser um `<input>`, e o
+  // container (`#side`) também some entre redesenhos. Então a procura é pelo
+  // que o WhatsApp precisa manter estável para a própria acessibilidade — o
+  // rótulo do campo — com a posição na tela como desempate.
+  const SEARCH_LABEL_RE   = /pesquis|search|buscar/i;
+  const COMPOSE_LABEL_RE  = /mensagem|message/i;
+  const NEW_CHAT_LABEL_RE = /nova conversa|new chat|nueva conversaci/i;
+
+  const TEXT_FIELD_SEL =
+    'input[type="text"], input[type="search"], input:not([type]), textarea, [contenteditable="true"]';
+
+  /** Elemento pertence ao painel do plugin (tudo nosso é prefixado `sf-wa`). */
+  function isOurs(el) {
+    for (let n = el; n; n = n.parentElement) {
+      if (n.id && n.id.startsWith('sf-wa')) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Campos de texto visíveis do WhatsApp — os nossos ficam de fora. Visível é
+   * medido por `getClientRects()`, não por `offsetParent`, que dá null em
+   * qualquer elemento dentro de container `position: fixed`.
+   */
+  function textFields() {
+    return Array.from(document.querySelectorAll(TEXT_FIELD_SEL))
+      .filter(el => !isOurs(el) && el.getClientRects().length > 0);
+  }
+
+  /** Tudo que o WhatsApp usa para rotular o campo, junto — é o que identifica cada um. */
+  function labelOf(el) {
+    return [
+      el.getAttribute('aria-label'),
+      el.getAttribute('placeholder'),
+      el.getAttribute('data-placeholder'),
+      el.getAttribute('title'),
+    ].filter(Boolean).join(' ');
+  }
+
+  function findSearchBox() {
+    const fields = textFields();
+    return fields.find(el => SEARCH_LABEL_RE.test(labelOf(el)))
+        || fields.find(el => el.closest('#side'))
+        || null;
+  }
+
+  function findComposeBox() {
+    const fields = textFields().filter(el => !SEARCH_LABEL_RE.test(labelOf(el)));
+    return fields.find(el => COMPOSE_LABEL_RE.test(labelOf(el)))
+        || fields.find(el => el.closest('footer'))
+        || fields.find(el => el.closest('#main'))
+        || null;
+  }
+
+  /** Botão "Nova conversa" (o lápis no topo da lista). */
+  function findNewChatButton() {
+    return Array.from(document.querySelectorAll('button, [role="button"], [aria-label]'))
+      .filter(el => !isOurs(el) && el.getClientRects().length > 0)
+      .find(el => NEW_CHAT_LABEL_RE.test(labelOf(el))) || null;
+  }
+
+  /**
+   * Linhas de lista VISÍVEIS dentro de `root`. A visibilidade não é detalhe:
+   * com o painel "Nova conversa" aberto, a lista de conversas de trás continua
+   * no DOM, e pegar uma linha dela abre a conversa errada.
+   */
+  function rowsIn(root) {
+    if (!root) return [];
+    for (const sel of ['[role="listitem"]', '[role="row"]', '[role="option"]', '[role="gridcell"]']) {
+      const rows = Array.from(root.querySelectorAll(sel))
+        .filter(el => !isOurs(el) && el.getClientRects().length > 0);
+      if (rows.length) return rows;
+    }
+    return [];
+  }
+
+  /** Linhas da lista de conversas — de `scope`, senão de `#pane-side`, senão da página. */
+  function chatRows(scope) {
+    if (scope) return rowsIn(scope);
+    const pane = rowsIn(document.querySelector('#pane-side'));
+    return pane.length ? pane : rowsIn(document);
+  }
+
+  /**
+   * Container do painel "Nova conversa": primeiro ancestral da busca do painel
+   * que já tem linhas de resultado. É o escopo que separa os resultados da
+   * busca da lista de conversas que ficou atrás do painel.
+   */
+  function panelScopeOf(searchEl) {
+    for (let n = searchEl && searchEl.parentElement; n && n !== document.body; n = n.parentElement) {
+      if (rowsIn(n).length) return n;
+    }
+    return null;
+  }
+
+  /** Texto do cabeçalho da conversa aberta ('' quando não há conversa aberta). */
+  function openChatHeaderText() {
+    const header = document.querySelector('#main header');
+    return header ? (header.textContent || '').trim() : '';
+  }
+
+  /**
+   * A conversa aberta é a do número? Só dá para afirmar quando o cabeçalho
+   * mostra o número — contato salvo mostra o nome.
+   */
+  function headerMatchesDigits(digits) {
+    const headerDigits = openChatHeaderText().replace(/\D/g, '');
+    return !!headerDigits && headerDigits.includes(digits.slice(-8));
+  }
+
+  // Falhou: despeja no console o que existe na página, para ajustar a busca dos
+  // campos sem precisar adivinhar de novo.
+  function logChatDomSnapshot(reason) {
+    console.warn('[WA-PANEL] Não abri a conversa:', reason, {
+      side: !!document.querySelector('#side'),
+      paneSide: !!document.querySelector('#pane-side'),
+      main: !!document.querySelector('#main'),
+      botaoNovaConversa: labelOf(findNewChatButton() || document.body) || null,
+      conversaAberta: openChatHeaderText() || null,
+      linhasDaLista: chatRows().length,
+      campos: textFields().map(el => ({
+        tag: el.tagName,
+        type: el.getAttribute('type'),
+        dataTab: el.getAttribute('data-tab'),
+        role: el.getAttribute('role'),
+        rotulo: labelOf(el),
+        emSide: !!el.closest('#side'),
+        emMain: !!el.closest('#main'),
+        emFooter: !!el.closest('footer'),
+      })),
+    });
+  }
+
+  // O React do WhatsApp escuta a sequência inteira, e as versões novas ouvem
+  // `pointerdown`/`pointerup` — mouse events sozinhos não trocam de conversa.
+  // O alvo também importa: quem tem o handler é o elemento que está por cima no
+  // centro da linha (`elementFromPoint`), não o `[role="listitem"]` de fora —
+  // disparar no container errado é evento que não chega a handler nenhum.
+  function fireClick(el) {
+    const rect = el.getBoundingClientRect();
+    const x = rect.left + rect.width / 2;
+    const y = rect.top + rect.height / 2;
+    const onTop = (rect.width && rect.height) ? document.elementFromPoint(x, y) : null;
+    const hit = (onTop && el.contains(onTop)) ? onTop : el;
+
+    const base = { bubbles: true, cancelable: true, composed: true, view: window, clientX: x, clientY: y, button: 0 };
+    const down = { ...base, buttons: 1 };
+    const up = { ...base, buttons: 0 };
+    const pointer = { pointerId: 1, pointerType: 'mouse', isPrimary: true, width: 1, height: 1 };
+
+    hit.dispatchEvent(new PointerEvent('pointerover', { ...down, ...pointer }));
+    hit.dispatchEvent(new MouseEvent('mouseover', down));
+    hit.dispatchEvent(new PointerEvent('pointerdown', { ...down, ...pointer }));
+    hit.dispatchEvent(new MouseEvent('mousedown', down));
+    if (typeof hit.focus === 'function') hit.focus();
+    hit.dispatchEvent(new PointerEvent('pointerup', { ...up, ...pointer }));
+    hit.dispatchEvent(new MouseEvent('mouseup', up));
+    hit.dispatchEvent(new MouseEvent('click', up));
+  }
+
+  /**
+   * Espera a conversa REALMENTE trocar depois do clique — cabeçalho com o
+   * número, ou pelo menos diferente do que estava. Sem essa confirmação, um
+   * clique que não pegou deixava o texto no campo da conversa que já estava
+   * aberta: mensagem escrita para o contato errado.
+   */
+  function waitForChatSwitch(digits, headerBefore) {
+    return waitFor(() => {
+      const now = openChatHeaderText();
+      if (!now) return null;
+      if (headerMatchesDigits(digits)) return true;
+      return now !== headerBefore ? true : null;
+    });
+  }
+
+  function waitFor(check, timeoutMs = CHAT_SWITCH_TIMEOUT_MS) {
+    return new Promise((resolve) => {
+      const startedAt = Date.now();
+      const tick = () => {
+        let found = null;
+        try { found = check(); } catch (_) { found = null; }
+        if (found) { resolve(found); return; }
+        if (Date.now() - startedAt > timeoutMs) { resolve(null); return; }
+        setTimeout(tick, 120);
+      };
+      tick();
+    });
+  }
+
+  /**
+   * Texto como aparece na TELA: `innerText` respeita <br> e blocos, então é ele
+   * — não `textContent` — que mostra se as quebras de linha entraram.
+   */
+  function editorText(el) {
+    return (el.innerText || el.textContent || '').replace(/\r/g, '').replace(/\u00a0/g, ' ');
+  }
+
+  // Comparação por letras e números só. Espaço fica de fora (o editor
+  // normaliza), pontuação e emoji também: emoji virou imagem no editor do
+  // WhatsApp e não aparece no `innerText`, o que faria a conferência falhar
+  // num texto que na verdade entrou inteiro.
+  const textKey = (s) => s.replace(/[^\p{L}\p{N}]+/gu, '').toLowerCase();
+
+  /**
+   * Seleciona TODO o conteúdo do editor com Range/Selection. `el.focus()` não
+   * cria caret dentro de um contenteditable controlado, e aí o
+   * `execCommand('selectAll')` seleciona outra coisa (ou nada): o texto novo
+   * entrava emendado no rascunho que o WhatsApp guardou da tentativa anterior —
+   * a mensagem aparecia duas vezes, uma achatada e outra certa.
+   */
+  function selectAllIn(el) {
+    const sel = window.getSelection();
+    if (!sel) return false;
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    sel.removeAllRanges();
+    sel.addRange(range);
+    return true;
+  }
+
+  /**
+   * Esvazia o editor — inclusive o rascunho que já estava na conversa — e
+   * confirma que ficou vazio. Sem a confirmação não dá para escrever: colar por
+   * cima de rascunho é o que duplicava a mensagem.
+   */
+  function clearEditor(el) {
+    for (let i = 0; i < 3 && editorText(el).trim(); i++) {
+      el.focus();
+      selectAllIn(el);
+      document.execCommand('delete', false, null);
+    }
+    return !editorText(el).trim();
+  }
+
+  /**
+   * Cola `text` no editor como um Ctrl+V. É o caminho que preserva as QUEBRAS
+   * DE LINHA: o campo de mensagem é um contenteditable controlado (Lexical) e
+   * `execCommand('insertText')` entrega o texto todo numa linha só — foi assim
+   * que os parágrafos da campanha chegaram grudados. O `paste` sintético passa
+   * pelo mesmo handler do Ctrl+V, que lê o `text/plain` respeitando os "\n".
+   * Devolve `false` quando o editor não aceitou (aí o chamador tenta o resto).
+   */
+  function pasteInto(el, text) {
+    try {
+      const data = new DataTransfer();
+      data.setData('text/plain', text);
+      el.dispatchEvent(new ClipboardEvent('paste', {
+        bubbles: true, cancelable: true, clipboardData: data,
+      }));
+    } catch (_) {
+      return false;
+    }
+    return true;
+  }
+
+  /**
+   * Espera o editor MOSTRAR o texto. O campo de mensagem é um Lexical: ele
+   * processa o `paste` num tick posterior, então conferir `innerText` no mesmo
+   * instante do dispatch dava "não aceitou o texto" com a mensagem já na tela —
+   * e ainda fazia a tentativa seguinte apagar o que tinha acabado de entrar.
+   */
+  function waitForEditorText(el, text) {
+    const want = textKey(text);
+    return waitFor(() => (textKey(editorText(el)) === want ? true : null), EDITOR_SETTLE_TIMEOUT_MS);
+  }
+
+  // `<input>` controlado por React ignora `el.value = x` — o valor precisa
+  // passar pelo setter nativo para o React ver a mudança. Já no
+  // `contenteditable` (editor da mensagem) escrever em `textContent` não é
+  // registrado: vai por `paste` (preserva as quebras) e, se ele não pegar, por
+  // `execCommand('insertText')`.
+  async function typeInto(el, text) {
+    el.focus();
+
+    if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {
+      const proto = el.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+      Object.getOwnPropertyDescriptor(proto, 'value').set.call(el, text);
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      return el.value === text;
+    }
+
+    if (!text) return clearEditor(el);
+
+    // Cada tentativa espera o editor assentar (`waitForEditorText`) antes de
+    // desistir — conferir na hora é o que fazia a 1ª "falhar" e a 2ª apagar o
+    // texto recém-colado.
+    //
+    // 1ª: substituir a seleção (conteúdo inteiro) pelo paste.
+    selectAllIn(el);
+    if (pasteInto(el, text) && await waitForEditorText(el, text)) return true;
+
+    // 2ª: esvaziar de verdade e colar no campo vazio.
+    if (clearEditor(el) && pasteInto(el, text) && await waitForEditorText(el, text)) return true;
+
+    // 3ª: o editor ignorou o `paste`. `insertText` entrega o texto achatado
+    // (sem as quebras), o que ainda é melhor que campo vazio.
+    clearEditor(el);
+    document.execCommand('insertText', false, text);
+
+    // Gate final: o campo tem o texto e SÓ ele. `textKey` ignora espaços, então
+    // quebra achatada passa — mas texto repetido (o bug da duplicação) não.
+    return await waitForEditorText(el, text);
+  }
+
+  // Confere se a linha é mesmo do número procurado. Compara pelo FINAL dos
+  // dígitos porque o WhatsApp exibe o número formatado e nem sempre com DDI.
+  // Contato salvo mostra o nome, não o número — aí não dá para confirmar, e o
+  // chamador cai na primeira linha da lista já filtrada.
+  function rowMatchesDigits(row, digits) {
+    const rowDigits = (row.textContent || '').replace(/\D/g, '');
+    return !!rowDigits && rowDigits.includes(digits.slice(-8));
+  }
+
+  // Espera a lista de resultados parar de mudar (senão o clique pega a lista
+  // velha, de antes da busca) e devolve a linha do número — ou a primeira.
+  function waitForResultRow(digits, getScope) {
+    let lastKey = null;
+    let stableSince = Date.now();
+    return waitFor(() => {
+      // Com escopo (painel "Nova conversa"), enquanto ele não tiver resultado a
+      // espera continua — nunca cai na lista de conversas que ficou atrás.
+      let scope = null;
+      if (getScope) {
+        scope = getScope();
+        if (!scope) { lastKey = null; return null; }
+      }
+      const rows = chatRows(scope);
+      if (!rows.length) { lastKey = null; return null; }
+
+      const key = rows.map(r => r.textContent || '').join('|');
+      if (key !== lastKey) { lastKey = key; stableSince = Date.now(); return null; }
+      if (Date.now() - stableSince < CHAT_LIST_SETTLE_MS) return null;
+
+      return rows.find(r => rowMatchesDigits(r, digits)) || rows[0];
+    });
+  }
+
+  /**
+   * Abre o chat do número na aba atual e deixa `text` digitado no campo de
+   * mensagem, sem enviar.
+   *
+   * Devolve `{ ok, chatOpened, reason, warning }`. `chatOpened` é separado de
+   * `ok` de propósito: é ele que diz se a conversa NA TELA é a do número — a
+   * única condição para vincular o lead a ela. Texto que entrou diferente do
+   * esperado é `warning`, não falha: a pessoa lê a mensagem antes de apertar
+   * Enter, e travar aí só a obrigava a copiar e colar à mão.
+   */
+  async function openChatInPlace(phone, text) {
+    const fail = (reason, chatOpened = false) => { logChatDomSnapshot(reason); return { ok: false, chatOpened, reason }; };
+
+    const digits = waDigits(phone);
+    if (!digits) return fail('telefone do lead está vazio');
+
+    const opened = await openChatByNumber(digits);
+    if (opened !== true) return fail(opened);
+
+    const compose = await waitFor(() => findComposeBox());
+    if (!compose) return fail('a conversa abriu, mas não achei o campo de mensagem', true);
+
+    if (await typeInto(compose, text)) return { ok: true, chatOpened: true };
+
+    // Campo VAZIO é falha de verdade; campo escrito é divergência (quebra de
+    // linha achatada, texto sobrando de um rascunho) — vai como aviso.
+    if (!editorText(compose).trim()) return fail('o campo de mensagem não aceitou o texto', true);
+
+    return {
+      ok: true,
+      chatOpened: true,
+      warning: 'confira a mensagem no campo — ela pode ter saído diferente da que estava na ficha',
+    };
+  }
+
+  /**
+   * Leva a tela até a conversa do número. Caminho principal é o painel "Nova
+   * conversa" do WhatsApp, porque ele aceita QUALQUER número — inclusive lead
+   * vindo de scraping, que nunca conversou com a clínica e não está nos
+   * contatos. A busca da lista lateral só enxerga conversa que já existe, então
+   * fica de reserva, para quando o botão "Nova conversa" não for encontrado.
+   */
+  async function openChatByNumber(digits) {
+    // Conversa certa já aberta (cabeçalho com o número): nada a fazer.
+    if (headerMatchesDigits(digits)) return true;
+
+    const headerBefore = openChatHeaderText();
+    const listSearch = findSearchBox();
+    const newChatBtn = findNewChatButton();
+
+    if (newChatBtn) {
+      fireClick(newChatBtn);
+
+      // O painel abre com uma caixa de busca própria ("Pesquisar nome ou
+      // número"). Identifica-se por ser a que NÃO estava lá antes do clique — a
+      // da lista continua no DOM e tem rótulo parecido.
+      const panelSearch = await waitFor(
+        () => textFields().find(el => el !== listSearch && SEARCH_LABEL_RE.test(labelOf(el))) || null,
+        NEW_CHAT_PANEL_TIMEOUT_MS,
+      );
+
+      if (panelSearch) {
+        if (!(await typeInto(panelSearch, digits))) return 'a busca de "Nova conversa" não aceitou o número';
+        const row = await waitForResultRow(digits, () => panelScopeOf(panelSearch));
+        if (!row) return `o WhatsApp não ofereceu conversa para ${digits} — confira se o número está certo`;
+        fireClick(row);
+        if (await waitForChatSwitch(digits, headerBefore)) return true;
+        return `cliquei no resultado de ${digits} em "Nova conversa", mas a conversa não abriu`;
+      }
+    }
+
+    if (!listSearch) return 'não achei nem o botão "Nova conversa" nem a caixa de busca';
+
+    fireClick(listSearch);
+    if (!(await typeInto(listSearch, digits))) return 'a caixa de busca não aceitou o número';
+
+    const row = await waitForResultRow(digits);
+    if (!row) {
+      await typeInto(listSearch, ''); // desfaz o filtro antes de devolver a lista ao usuário
+      return `nenhuma conversa encontrada para ${digits}`;
+    }
+    fireClick(row);
+    if (await waitForChatSwitch(digits, headerBefore)) return true;
+    return `cliquei na conversa de ${digits} na lista, mas ela não abriu`;
   }
 
   function openFollowUpDetailModal(item) {
     const meta = followUpPriorityMeta(item.priority);
     const msg = item.suggestionMessage;
-    const waLink = msg ? buildFollowUpWaLink(item.phone, msg) : null;
+    const canOpenChat = !!(msg && waDigits(item.phone));
     const opportunitySummary = item.opportunityId ? opportunitySummaryHTML({
       name: item.opportunityName,
       phone: item.phone,
@@ -1991,7 +2952,7 @@
             <p class="sf-followup-msg-text">${escHtml(msg)}</p>
             <div class="sf-followup-msg-actions">
               <button type="button" class="sf-followup-copy-btn">Copiar mensagem</button>
-              ${waLink ? `<a class="sf-followup-wa-btn" href="${escHtml(waLink)}" target="_blank" rel="noopener noreferrer">Enviar no WhatsApp</a>` : ''}
+              ${canOpenChat ? `<button type="button" class="sf-followup-wa-btn">Enviar no WhatsApp</button>` : ''}
             </div>
           </div>
         ` : ''}
@@ -2010,16 +2971,48 @@
 
     const waBtn = overlay.querySelector('.sf-followup-wa-btn');
     if (waBtn) {
-      // Deixa o link abrir normalmente (preenche o texto na conversa) e,
-      // em paralelo, conclui o acompanhamento na API (mesma rota já usada
-      // pelo fluxo de Histórico/Acompanhamento: COMPLETE_ACTIVITY).
-      waBtn.addEventListener('click', () => {
-        waBtn.textContent = 'Mensagem enviada ✓';
+      // Abre a conversa na própria aba com o texto no campo (`openChatInPlace`)
+      // e registra o envio como a ficha do lead faz (REGISTER_WHATSAPP_SEND:
+      // avança a cadência/funil, atribui o lead e vincula a conversa). Só
+      // concluir a tarefa (COMPLETE_ACTIVITY) deixava o prospect parado na
+      // etapa e sem próxima ação — o "Contato 3" nunca era criado. A conclusão
+      // continua depois, para o acompanhamento que não é o toque da cadência
+      // (oportunidade comercial ou tarefa avulsa); no toque, já veio concluído.
+      waBtn.addEventListener('click', async () => {
+        waBtn.disabled = true;
+        waBtn.textContent = 'Abrindo conversa...';
+
+        const chat = await openChatInPlace(item.phone, msg);
+        if (!chat.ok) {
+          // Não abriu a conversa: o acompanhamento NÃO é concluído — marcar
+          // como feito aqui esconderia da lista uma mensagem que ninguém mandou.
+          // (o motivo já foi para o console em `openChatInPlace`)
+          waBtn.disabled = false;
+          waBtn.textContent = 'Tentar de novo';
+          waBtn.title = `Não deu para abrir a conversa aqui: ${chat.reason}`;
+          return;
+        }
+
         waBtn.classList.add('sf-followup-wa-btn-sent');
-        chrome.runtime.sendMessage({ type: 'COMPLETE_ACTIVITY', id: item.id }, () => {
-          fetchFollowUpsToday();
+        waBtn.textContent = 'Atualizando o CRM...';
+
+        const sent = item.opportunityId
+          ? await registerLeadSend({ id: item.opportunityId, phone: item.phone }, null, true)
+          : null;
+        const completed = await new Promise((resolve) => {
+          chrome.runtime.sendMessage({ type: 'COMPLETE_ACTIVITY', id: item.id }, resolve);
         });
-        setTimeout(() => closeModal(), 900);
+
+        closeModal();
+        fetchFollowUpsToday();
+        if (sent) {
+          const summary = leadSendSummary(chat, sent);
+          updateTimestamp(summary);
+          showFlash(summary, sent.ok ? 'ok' : 'error');
+          if (sent.notes && sent.notes.length) console.warn('[WA-PANEL] Envio registrado com ressalvas:', sent.notes);
+        } else if (!completed || !completed.ok) {
+          showFlash(`Acompanhamento NÃO concluído: ${(completed && completed.error) || 'falha ao falar com a API'}`, 'error');
+        }
       });
     }
   }
@@ -2314,6 +3307,12 @@
     return parts.length === 3 ? `${parts[2]}/${parts[1]}` : (dateStr || '');
   }
 
+  // Timestamp ISO (created_at/last_modified_date) -> DD/MM/AAAA.
+  function formatIsoDate(iso) {
+    const parts = String(iso || '').slice(0, 10).split('-');
+    return parts.length === 3 && parts[0] ? `${parts[2]}/${parts[1]}/${parts[0]}` : '';
+  }
+
   function slugify(str) {
     return (str || '')
       .toLowerCase()
@@ -2332,6 +3331,36 @@
         ${displayVal}
         ${extra}
       </div>`;
+  }
+
+  /**
+   * Faixa de aviso no topo do painel. Existe porque o retorno do envio não cabe
+   * mais no modal (ele fecha no clique) nem no rodapé, que o próximo poll
+   * sobrescreve: uma falha em "atualizar o CRM" precisa ficar na tela até
+   * alguém ler, senão o funil deixa de andar sem ninguém perceber.
+   *
+   * Erro fica até ser fechado; confirmação some sozinha.
+   */
+  function showFlash(message, kind = 'ok') {
+    const el = sidebar && sidebar.querySelector('#sf-wa-flash');
+    if (!el) return;
+
+    if (flashTimer) { clearTimeout(flashTimer); flashTimer = null; }
+
+    el.className = `sf-flash sf-flash-${kind}`;
+    el.innerHTML = `
+      <span class="sf-flash-text">${escHtml(message)}</span>
+      <button type="button" class="sf-flash-close" title="Fechar">${closeSVG()}</button>
+    `;
+    el.querySelector('.sf-flash-close').addEventListener('click', hideFlash);
+
+    if (kind === 'ok') flashTimer = setTimeout(hideFlash, 8000);
+  }
+
+  function hideFlash() {
+    if (flashTimer) { clearTimeout(flashTimer); flashTimer = null; }
+    const el = sidebar && sidebar.querySelector('#sf-wa-flash');
+    if (el) { el.className = 'sf-hidden-el'; el.innerHTML = ''; }
   }
 
   function updateTimestamp(msg) {
@@ -2527,6 +3556,14 @@
   function closeSVG() {
     return `<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
       <path d="M12 4L4 12M4 4l8 8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+    </svg>`;
+  }
+
+  function homeSVG() {
+    return `<svg width="15" height="15" viewBox="0 0 16 16" fill="none">
+      <path d="M2 7.5L8 2l6 5.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M3.5 6.5V13a1 1 0 0 0 1 1h7a1 1 0 0 0 1-1V6.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M6.3 14v-3.3a1 1 0 0 1 1-1h1.4a1 1 0 0 1 1 1V14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
     </svg>`;
   }
 

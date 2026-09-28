@@ -8,7 +8,40 @@
  *   - Antes de cada chamada, getValidToken() verifica expiração e renova se necessário
  */
 
-const API_BASE = 'https://eloautomacoes.com.br';
+/**
+ * Ambiente da API. Produção é o padrão; `localhost:3001` é o app rodando local
+ * (`docker compose up`, que mapeia 3001:3000) — serve para testar rota nova
+ * antes do deploy. A troca é feita no popup e **derruba a sessão**: token
+ * emitido num ambiente não vale no outro.
+ *
+ * Os dois hosts precisam estar em `host_permissions` no manifest.json.
+ */
+const PROD_API_BASE = 'https://eloautomacoes.com.br';
+const DEV_API_BASE = 'http://localhost:3001';
+
+// Evita um `chrome.storage.local.get` por chamada de API. O service worker é
+// reiniciado a cada suspensão, então o cache nunca fica velho por muito tempo,
+// e `setApiBase` o invalida na troca.
+let apiBaseCache = null;
+
+async function getApiBase() {
+  if (apiBaseCache) return apiBaseCache;
+  const { apiBase } = await chrome.storage.local.get(['apiBase']);
+  apiBaseCache = apiBase === DEV_API_BASE ? DEV_API_BASE : PROD_API_BASE;
+  return apiBaseCache;
+}
+
+/** Troca de ambiente: encerra a sessão (ainda no ambiente antigo) e vira a chave. */
+async function setApiBase(env) {
+  const next = env === 'dev' ? DEV_API_BASE : PROD_API_BASE;
+  const current = await getApiBase();
+  if (next === current) return { ok: true, apiBase: current, isDev: next === DEV_API_BASE, changed: false };
+
+  await logout();
+  apiBaseCache = next;
+  await chrome.storage.local.set({ apiBase: next });
+  return { ok: true, apiBase: next, isDev: next === DEV_API_BASE, changed: true };
+}
 
 // Buffer de 30s: renova o accessToken se ele expira em menos de 30 segundos
 const TOKEN_EXPIRY_BUFFER_MS = 30_000;
@@ -68,6 +101,16 @@ async function handleMessage(message) {
       return getProfessionals();
     case 'GET_OPPORTUNITIES':
       return getOpportunities();
+    case 'GET_LEAD_DETAIL':
+      return getLeadDetail(message.opportunityId);
+    case 'GET_CAMPAIGNS':
+      return getCampaigns();
+    case 'REGISTER_WHATSAPP_SEND':
+      return registerWhatsappSend(message.opportunityId, message.whatsappName, message.campaignName);
+    case 'GET_API_BASE':
+      return getApiBaseState();
+    case 'SET_API_BASE':
+      return setApiBase(message.env);
     default:
       return { ok: false, error: 'unknown_message' };
   }
@@ -76,6 +119,8 @@ async function handleMessage(message) {
 // ─── Auth ─────────────────────────────────────────────────────────────────
 
 async function login(email, password) {
+  const API_BASE = await getApiBase();
+
   try {
     const res = await fetch(`${API_BASE}/api/auth/login`, {
       method: 'POST',
@@ -105,6 +150,7 @@ async function login(email, password) {
 }
 
 async function logout() {
+  const API_BASE = await getApiBase();
   const { refreshToken } = await chrome.storage.local.get(['refreshToken']);
 
   if (refreshToken) {
@@ -142,7 +188,20 @@ async function getAuthState() {
   }
 
   const me = branding && branding.me;
-  return { ok: true, authenticated: true, email, userId: me && me.userId, role: me && me.role, appBase: API_BASE };
+  return {
+    ok: true,
+    authenticated: true,
+    email,
+    userId: me && me.userId,
+    role: me && me.role,
+    appBase: await getApiBase(),
+  };
+}
+
+/** Ambiente corrente — o popup usa para marcar o botão ativo. */
+async function getApiBaseState() {
+  const apiBase = await getApiBase();
+  return { ok: true, apiBase, isDev: apiBase === DEV_API_BASE };
 }
 
 // ─── Token Management ─────────────────────────────────────────────────────
@@ -172,6 +231,8 @@ async function getValidToken() {
 }
 
 async function refreshTokens(refreshToken) {
+  const API_BASE = await getApiBase();
+
   try {
     const res = await fetch(`${API_BASE}/api/auth/refresh`, {
       method: 'POST',
@@ -213,6 +274,7 @@ async function getBranding() {
 async function fetchAndStoreBranding() {
   const token = await getValidToken();
   if (!token) return;
+  const API_BASE = await getApiBase();
 
   try {
     const res = await fetch(`${API_BASE}/api/branding`, {
@@ -249,6 +311,7 @@ async function fetchAndStoreBranding() {
 async function lookupContact(name) {
   const token = await getValidToken();
   if (!token) return { ok: false, error: 'not_authenticated' };
+  const API_BASE = await getApiBase();
 
   try {
     const res = await fetch(`${API_BASE}/api/whatsapp-lookup`, {
@@ -283,6 +346,7 @@ async function lookupContact(name) {
 async function getPendingOpportunities() {
   const token = await getValidToken();
   if (!token) return { ok: false, error: 'not_authenticated' };
+  const API_BASE = await getApiBase();
 
   try {
     const res = await fetch(`${API_BASE}/api/whatsapp-pending`, {
@@ -306,6 +370,7 @@ async function getPendingOpportunities() {
 async function linkOpportunity(opportunityId, name) {
   const token = await getValidToken();
   if (!token) return { ok: false, error: 'not_authenticated' };
+  const API_BASE = await getApiBase();
 
   try {
     const res = await fetch(`${API_BASE}/api/whatsapp-link`, {
@@ -330,6 +395,7 @@ async function linkOpportunity(opportunityId, name) {
 async function unlinkOpportunity(opportunityId) {
   const token = await getValidToken();
   if (!token) return { ok: false, error: 'not_authenticated' };
+  const API_BASE = await getApiBase();
 
   try {
     const res = await fetch(`${API_BASE}/api/whatsapp-unlink`, {
@@ -354,6 +420,7 @@ async function unlinkOpportunity(opportunityId) {
 async function getLinkedOpportunities() {
   const token = await getValidToken();
   if (!token) return { ok: false, error: 'not_authenticated' };
+  const API_BASE = await getApiBase();
 
   try {
     const res = await fetch(`${API_BASE}/api/whatsapp-linked`, {
@@ -383,9 +450,29 @@ async function getLinkedOpportunities() {
 // apiPost/apiGet cobrem o boilerplate comum (token, 401 → logout, erro de rede)
 // pras rotas novas — mesmo padrão dos handlers acima, só sem repetir por rota.
 
+/**
+ * O proxy do app (`src/proxy.ts`) redireciona `/api/*` que não esteja na sua
+ * allowlist para `/login` — 307 seguido de uma página HTML com status 200. Sem
+ * esta checagem, `res.json()` estoura e o erro vira um genérico "Falha ao
+ * conectar", escondendo o que de fato aconteceu: a rota não existe (ou não está
+ * liberada) no ambiente apontado. Devolve `null` quando a resposta é JSON.
+ */
+function nonJsonError(res, path, base) {
+  const contentType = res.headers.get('content-type') || '';
+  if (contentType.includes('application/json')) return null;
+
+  const host = base.replace(/^https?:\/\//, '');
+  const route = path.split('?')[0];
+  return {
+    ok: false,
+    error: `Rota ${route} indisponível em ${host} (HTTP ${res.status}) — ambiente sem essa versão da API.`,
+  };
+}
+
 async function apiPost(path, body) {
   const token = await getValidToken();
   if (!token) return { ok: false, error: 'not_authenticated' };
+  const API_BASE = await getApiBase();
 
   try {
     const res = await fetch(`${API_BASE}${path}`, {
@@ -399,8 +486,11 @@ async function apiPost(path, body) {
       return { ok: false, error: 'not_authenticated' };
     }
 
+    const nonJson = nonJsonError(res, path, API_BASE);
+    if (nonJson) return nonJson;
+
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) return { ok: false, error: data.error || 'Erro ao processar a solicitação' };
+    if (!res.ok) return { ok: false, error: data.error || `Erro ao processar a solicitação (HTTP ${res.status})` };
 
     return { ok: true, ...data };
   } catch (err) {
@@ -411,6 +501,7 @@ async function apiPost(path, body) {
 async function apiGet(path) {
   const token = await getValidToken();
   if (!token) return { ok: false, error: 'not_authenticated' };
+  const API_BASE = await getApiBase();
 
   try {
     const res = await fetch(`${API_BASE}${path}`, {
@@ -422,9 +513,13 @@ async function apiGet(path) {
       return { ok: false, error: 'not_authenticated' };
     }
 
-    if (!res.ok) return { ok: false, error: 'Erro ao buscar dados' };
+    const nonJson = nonJsonError(res, path, API_BASE);
+    if (nonJson) return nonJson;
 
-    return { ok: true, data: await res.json() };
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return { ok: false, error: data.error || `Erro ao buscar dados (HTTP ${res.status})` };
+
+    return { ok: true, data };
   } catch (err) {
     return { ok: false, error: 'Falha ao conectar na API' };
   }
@@ -496,4 +591,31 @@ async function getOpportunities() {
   const result = await apiGet('/api/opportunities-list');
   if (!result.ok) return result;
   return { ok: true, opportunities: (result.data && result.data.opportunities) || [] };
+}
+
+/** Ficha completa de um lead/oportunidade pelo id — botão "Ver lead" da fila de pendentes. */
+async function getLeadDetail(opportunityId) {
+  const result = await apiGet(`/api/whatsapp-lead?id=${encodeURIComponent(opportunityId)}`);
+  if (!result.ok) return result;
+  return { ok: true, lead: (result.data && result.data.lead) || null };
+}
+
+/**
+ * Efeitos no CRM do "Enviar no WhatsApp" da ficha do lead: avança o funil,
+ * passa o lead para quem enviou e vincula a conversa aberta ao registro.
+ * Chamado DEPOIS de a conversa abrir com a mensagem no campo — nunca antes.
+ */
+async function registerWhatsappSend(opportunityId, whatsappName, campaignName) {
+  return apiPost('/api/whatsapp-send', {
+    opportunityId,
+    whatsappName: whatsappName || null,
+    campaignName: campaignName || null,
+  });
+}
+
+/** Campanhas ativas do tenant (com a mensagem sugerida) — seletor "Campanha" da ficha do lead. */
+async function getCampaigns() {
+  const result = await apiGet('/api/campanhas-list');
+  if (!result.ok) return result;
+  return { ok: true, campaigns: (result.data && result.data.campaigns) || [] };
 }

@@ -217,6 +217,61 @@
 
     .privacy-link:hover { color: var(--blue); }
 
+    /* Seletor de ambiente — produção x app local (docker, porta 3001). Fica
+       discreto no rodapé: é ferramenta de teste, não operação do dia a dia. */
+    .env-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 14px;
+      padding-top: 12px;
+      border-top: 1px solid var(--line);
+    }
+
+    .env-label {
+      font-family: var(--font-mono);
+      font-size: 9px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--ink-3);
+      flex-shrink: 0;
+    }
+
+    .env-toggle {
+      display: flex;
+      gap: 4px;
+      margin-left: auto;
+    }
+
+    .env-btn {
+      border: 1px solid var(--line);
+      background: var(--surface);
+      border-radius: 9999px;
+      padding: 4px 10px;
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--ink-3);
+      cursor: pointer;
+      transition: border-color .15s ease, color .15s ease;
+    }
+
+    .env-btn:hover { color: var(--ink-2); }
+
+    .env-btn-active {
+      border-color: var(--blue);
+      color: var(--blue);
+      background: rgba(46, 107, 255, .08);
+    }
+
+    .env-note {
+      font-size: 11px;
+      line-height: 1.5;
+      color: var(--ink-2);
+      margin-top: 8px;
+      display: none;
+    }
+
     .hidden { display: none; }
   </style>
 </head>
@@ -268,6 +323,15 @@
 
       <button type="button" class="btn btn-secondary" id="logout-btn">Sair</button>
     </div>
+
+    <div class="env-row">
+      <span class="env-label">Ambiente</span>
+      <div class="env-toggle">
+        <button type="button" class="env-btn" data-env="prod">Produção</button>
+        <button type="button" class="env-btn" data-env="dev">Local :3001</button>
+      </div>
+    </div>
+    <p class="env-note" id="env-note"></p>
 
     <p class="version">v1.0.0 · Painel de Contato para WhatsApp Web</p>
     <a

@@ -5,10 +5,13 @@ const loginBtn = document.getElementById('login-btn');
 const loginError = document.getElementById('login-error');
 const loggedEmail = document.getElementById('logged-email');
 const logoutBtn = document.getElementById('logout-btn');
+const envButtons = document.querySelectorAll('.env-btn');
+const envNote = document.getElementById('env-note');
 
 init();
 
 async function init() {
+  await renderEnv();
   const state = await sendMessage({ type: 'GET_AUTH_STATE' });
   render(state.authenticated, state.email);
   if (state.authenticated) {
@@ -16,6 +19,34 @@ async function init() {
     applyBranding(res && res.branding);
   }
 }
+
+// ─── Ambiente da API (produção x app local na 3001) ─────────────────────────
+// Só marca o botão ativo; a decisão de qual base usar mora no background.js,
+// que é quem guarda os tokens.
+
+async function renderEnv() {
+  const res = await sendMessage({ type: 'GET_API_BASE' });
+  const isDev = !!(res && res.isDev);
+  envButtons.forEach((btn) => {
+    btn.classList.toggle('env-btn-active', (btn.dataset.env === 'dev') === isDev);
+  });
+  if (isDev) {
+    envNote.textContent = 'Apontando para o app local (http://localhost:3001). Suba o docker antes de entrar.';
+    envNote.style.display = 'block';
+  } else {
+    envNote.style.display = 'none';
+  }
+}
+
+envButtons.forEach((btn) => {
+  btn.addEventListener('click', async () => {
+    const result = await sendMessage({ type: 'SET_API_BASE', env: btn.dataset.env });
+    await renderEnv();
+    // Trocar de ambiente encerra a sessão (o token do outro ambiente não vale) —
+    // a tela volta para o login.
+    if (result && result.changed) render(false);
+  });
+});
 
 function render(authenticated, email) {
   viewLogin.classList.toggle('hidden', authenticated);

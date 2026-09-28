@@ -148,6 +148,7 @@ body.sf-sidebar-open #startup {
 
 #sf-wa-toggle-btn,
 #sf-wa-logout-btn,
+#sf-wa-home-btn,
 #sf-wa-refresh-btn,
 #sf-wa-linked-toggle-btn {
   background: rgba(255, 255, 255, .1);
@@ -165,6 +166,7 @@ body.sf-sidebar-open #startup {
 
 #sf-wa-toggle-btn:hover,
 #sf-wa-logout-btn:hover,
+#sf-wa-home-btn:hover,
 #sf-wa-refresh-btn:hover,
 #sf-wa-linked-toggle-btn:hover {
   background: rgba(255, 255, 255, 0.22);
@@ -857,6 +859,7 @@ body.sf-sidebar-open #startup {
 .sf-followup-wa-btn {
   display: inline-flex;
   align-items: center;
+  border: none;
   border-radius: 9999px;
   background: var(--sf-wa);
   color: #ffffff;
@@ -865,11 +868,16 @@ body.sf-sidebar-open #startup {
   font-size: 12px;
   font-weight: 500;
   text-decoration: none;
+  cursor: pointer;
   transition: transform .15s ease;
 }
 
-.sf-followup-wa-btn:hover {
+.sf-followup-wa-btn:hover:not(:disabled) {
   transform: translateY(-2px);
+}
+
+.sf-followup-wa-btn:disabled {
+  cursor: default;
 }
 
 .sf-followup-wa-btn-sent {
@@ -1221,6 +1229,47 @@ body.sf-sidebar-open #startup {
 }
 
 /* Barra de oportunidade — hero navy fixo, sempre visível (sem scroll) */
+/* Faixa de aviso (envio registrado / falha ao atualizar o CRM) — fica entre o
+   cabeçalho e a barra de oportunidade, onde o olho já está depois do clique. */
+.sf-flash {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 12px;
+  flex-shrink: 0;
+  font-size: 11.5px;
+  line-height: 1.45;
+  border-bottom: 1px solid var(--sf-line);
+  animation: sf-rise .35s cubic-bezier(.22, 1, .36, 1) both;
+}
+
+.sf-flash-ok {
+  background: color-mix(in srgb, var(--sf-green) 12%, transparent);
+  color: var(--sf-green);
+}
+
+.sf-flash-error {
+  background: color-mix(in srgb, var(--sf-error) 12%, transparent);
+  color: var(--sf-error);
+}
+
+.sf-flash-text { flex: 1; }
+
+.sf-flash-close {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  color: inherit;
+  opacity: .65;
+  line-height: 0;
+}
+
+.sf-flash-close:hover { opacity: 1; }
+
+.sf-flash-close svg { width: 12px; height: 12px; }
+
 #sf-wa-opportunity-bar {
   position: relative;
   background: var(--sf-navy);
@@ -1988,7 +2037,7 @@ body.sf-sidebar-open #startup {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  max-height: 240px;
+  max-height: 380px;
   overflow-y: auto;
   scrollbar-width: thin;
   scrollbar-color: var(--sf-line-2) transparent;
@@ -2003,7 +2052,8 @@ body.sf-sidebar-open #startup {
   background: var(--sf-surface-2);
   border: 1px solid var(--sf-line);
   border-radius: 12px;
-  padding: 20px 10px;
+  padding: 12px 10px;
+  min-height: 56px;
 }
 
 .sf-pending-info {
@@ -2018,9 +2068,14 @@ body.sf-sidebar-open #startup {
   font-size: 12px;
   color: var(--sf-ink);
   font-weight: 600;
-  white-space: nowrap;
+  /* Nomes de clínica são longos; quebra em até 2 linhas em vez de cortar
+     no meio com reticências. O item cresce em altura conforme necessário. */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
+  line-height: 1.35;
 }
 
 .sf-pending-phone {
@@ -2032,6 +2087,33 @@ body.sf-sidebar-open #startup {
   text-overflow: ellipsis;
 }
 
+.sf-pending-actions {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.sf-pending-view-btn {
+  border: 1.5px solid var(--sf-line-2);
+  background: var(--sf-surface);
+  border-radius: 9999px;
+  cursor: pointer;
+  font-family: var(--sf-font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--sf-ink-2);
+  padding: 7px 12px;
+  white-space: nowrap;
+  transition: border-color .15s ease, color .15s ease;
+}
+
+.sf-pending-view-btn:hover {
+  border-color: var(--sf-blue);
+  color: var(--sf-blue);
+}
+
 .sf-pending-link-btn {
   background: var(--sf-grad);
   color: white;
@@ -2041,8 +2123,8 @@ body.sf-sidebar-open #startup {
   font-family: var(--sf-font-mono);
   font-size: 11px;
   font-weight: 500;
-  padding: 8px 16px;
-  flex-shrink: 0;
+  padding: 8px 12px;
+  white-space: nowrap;
   box-shadow: var(--sf-sh-brand);
   transition: transform .15s ease;
 }
@@ -2233,4 +2315,291 @@ body.sf-sidebar-open #startup {
   #sf-wa-empty {
     animation: none;
   }
+}
+
+/* ─── Ficha do lead (modal "Ver lead" da fila de pendentes) ───────────────── */
+
+/* Momento do funil — trilha de etapas no topo da ficha. */
+.sf-lead-funnel {
+  background: var(--sf-grad-soft);
+  border: 1px solid var(--sf-line);
+  border-radius: 14px;
+  padding: 12px 14px;
+  margin-bottom: 16px;
+}
+
+.sf-lead-funnel-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.sf-lead-funnel-stage {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--sf-ink);
+}
+
+.sf-lead-funnel-count {
+  font-family: var(--sf-font-mono);
+  font-size: 11px;
+  color: var(--sf-ink-2);
+  flex-shrink: 0;
+}
+
+.sf-lead-funnel-track {
+  display: flex;
+  gap: 3px;
+  margin: 9px 0 7px;
+}
+
+.sf-lead-step {
+  flex: 1;
+  height: 5px;
+  border-radius: 9999px;
+  background: rgba(12, 18, 48, .10);
+}
+
+.sf-lead-step-done {
+  background: var(--sf-blue);
+}
+
+.sf-lead-funnel-kind {
+  font-family: var(--sf-font-mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--sf-ink-3);
+}
+
+/* Dados do lead — 2 colunas, mesma leitura da barra de oportunidade. */
+.sf-lead-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px 14px;
+}
+
+.sf-lead-cell {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.sf-lead-label {
+  font-family: var(--sf-font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--sf-ink-3);
+  margin-bottom: 3px;
+}
+
+.sf-lead-value {
+  font-size: 12.5px;
+  color: var(--sf-ink);
+  overflow-wrap: anywhere;
+}
+
+.sf-lead-value.sf-empty {
+  color: var(--sf-ink-3);
+  font-style: italic;
+}
+
+.sf-lead-value-mono {
+  font-family: var(--sf-font-mono);
+  font-weight: 600;
+}
+
+.sf-lead-notes {
+  border: 1px solid var(--sf-line);
+  background: var(--sf-surface-2);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--sf-ink-2);
+  white-space: pre-line;
+}
+
+/* Próxima ação */
+.sf-lead-action-box {
+  border: 1px solid var(--sf-line);
+  border-left: 3px solid var(--sf-blue);
+  background: var(--sf-surface-2);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+
+.sf-lead-action-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.sf-lead-action-type {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--sf-ink);
+}
+
+.sf-lead-action-date {
+  font-family: var(--sf-font-mono);
+  font-size: 11px;
+  color: var(--sf-ink-2);
+  flex-shrink: 0;
+}
+
+.sf-lead-action-desc {
+  margin: 6px 0 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--sf-ink-2);
+  white-space: pre-line;
+}
+
+.sf-lead-use-suggestion {
+  margin-top: 8px;
+  border: none;
+  background: none;
+  padding: 0;
+  font-family: var(--sf-font-mono);
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--sf-blue);
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+/* Campanha + mensagem de envio */
+/* margin-top explícita: o `.sf-modal-label` que abre o bloco é :first-child e
+   perde a margem padrão, colando na seção anterior. */
+.sf-lead-campaign {
+  display: flex;
+  flex-direction: column;
+  margin-top: 18px;
+}
+
+.sf-lead-msg {
+  min-height: 110px;
+  line-height: 1.5;
+}
+
+.sf-lead-msg-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.sf-lead-copy-btn {
+  flex: 1;
+  border: 1.5px solid var(--sf-line-2);
+  background: var(--sf-surface);
+  border-radius: 9999px;
+  padding: 9px 14px;
+  font-family: var(--sf-font-mono);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--sf-ink-2);
+  cursor: pointer;
+  transition: border-color .15s ease, color .15s ease;
+}
+
+.sf-lead-copy-btn:hover {
+  border-color: var(--sf-line-2);
+  color: var(--sf-ink);
+}
+
+.sf-lead-wa-btn {
+  flex: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 9999px;
+  background: var(--sf-wa);
+  color: #ffffff;
+  padding: 9px 14px;
+  font-family: var(--sf-font-mono);
+  font-size: 12px;
+  font-weight: 500;
+  text-decoration: none;
+  cursor: pointer;
+  transition: transform .15s ease;
+}
+
+.sf-lead-wa-btn:hover:not(:disabled) {
+  transform: translateY(-2px);
+}
+
+.sf-lead-wa-btn:disabled {
+  opacity: .5;
+  cursor: default;
+}
+
+.sf-lead-wa-btn-sent {
+  background: #1f9e5c;
+}
+
+.sf-lead-hint {
+  margin: 8px 0 0;
+  font-size: 11.5px;
+  color: var(--sf-ink-3);
+}
+
+/* Aviso das variaveis {{...}} da campanha — escondido por padrao; o JS mostra
+   quando alguma nao pode ser preenchida com os dados do lead. */
+.sf-lead-hint-warn {
+  display: none;
+  margin-top: 8px;
+  border: 1px solid #f5d565;
+  background: #fff8db;
+  border-radius: 8px;
+  padding: 7px 10px;
+  color: #7c5e10;
+}
+
+.sf-lead-open-link {
+  margin-top: 16px;
+  align-self: center;
+  font-family: var(--sf-font-mono);
+  font-size: 12px;
+  color: var(--sf-blue);
+  text-decoration: none;
+}
+
+.sf-lead-open-link:hover {
+  text-decoration: underline;
+}
+
+/* ─── Tela inicial: aviso + lista de leads ────────────────────────────────── */
+
+/* Com a lista embaixo, o aviso deixa de esticar para ocupar o painel inteiro
+   (`#sf-wa-empty` tem `flex: 1`) e a rolagem passa a ser da tela toda. */
+#sf-wa-home {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--sf-line-2) transparent;
+}
+
+#sf-wa-home #sf-wa-empty {
+  flex: 0 0 auto;
+  margin: 12px 16px 0;
+  padding: 20px 20px 18px;
+}
+
+#sf-wa-home .sf-empty-logo {
+  width: 96px;
+  margin-bottom: 8px;
+}
+
+#sf-wa-home-leads-section {
+  border-bottom: none;
 }

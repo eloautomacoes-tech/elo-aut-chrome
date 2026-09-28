@@ -9,25 +9,41 @@ Elo Odonto. Este aponta para o app Elo Automações.
 
 ## Backend
 
-- `API_BASE` = `https://eloautomacoes.com.br` — definido em `src/background.js:11`.
-  Precisa bater com `host_permissions` no `manifest.json`.
+- Dois ambientes, definidos no topo do `src/background.js`:
+  `PROD_API_BASE` = `https://eloautomacoes.com.br` (padrão) e
+  `DEV_API_BASE` = `http://localhost:3001` (o `docker compose up dev` do app,
+  que mapeia `3001:3000`). Ambos precisam estar em `host_permissions`.
+- A troca é feita no **popup da extensão** (rodapé "Ambiente"), fica guardada em
+  `chrome.storage.local.apiBase` e **derruba a sessão** — token emitido num
+  ambiente não vale no outro, então é preciso entrar de novo depois de trocar.
 - Código-fonte do backend: `C:\dev\Elo-Automacoes` (Next.js, rotas em `src/app/api/`).
+- Rota nova no backend precisa entrar em `PUBLIC_ROUTES` de `src/proxy.ts` — sem
+  isso o proxy redireciona `/api/...` para `/login` (307) antes de a rota rodar,
+  e a extensão recebe HTML em vez do 401/JSON.
 
-## Pendências no backend (rotas que o plugin chama e não existem no app Elo Automações)
+## Rotas do backend usadas pelo plugin
 
-Verificado comparando os 24 endpoints usados em `src/background.js` com
-`C:\dev\Elo-Automacoes\src\app\api`. Faltam duas:
+Os 27 endpoints chamados em `src/background.js` existem em
+`C:\dev\Elo-Automacoes\src\app\api`. `opportunities-list` e `auth/logout`,
+que faltavam, já foram implementados lá.
 
-- **`/api/opportunities-list`** — chamada por `getOpportunities()` (mensagem
-  `GET_OPPORTUNITIES`). Hoje falha. Existe uma implementação em
-  `c:\dev\ELO-Lite\src\app\api\opportunities-list` que serve de base para portar.
-- **`/api/auth/logout`** — chamada por `logout()`. O app só tem `auth/login` e
-  `auth/refresh`. Degrada bem (o `catch` ignora a falha e limpa o `chrome.storage.local`),
-  mas o refresh token não é invalidado no servidor.
+⚠️ **Três rotas são novas e ainda não foram para produção.** Enquanto o deploy em
+`eloautomacoes.com.br` não sai, dá para testar apontando o popup para `Local :3001`;
+em produção, o botão "Ver lead" mostra "Erro ao carregar a ficha do lead":
 
-As outras 22 existem: `whatsapp-lookup|pending|link|unlink|linked`, `branding`,
-`auth/login`, `auth/refresh`, `agenda-today`, `followups-today`, `professionals`,
-e os CRUDs `opportunity-*`, `scheduling-*`, `event-*`, `activity-*`.
+- **`GET /api/whatsapp-lead?id=`** (`GET_LEAD_DETAIL`) — ficha do lead pelo id da
+  oportunidade: momento do funil, contato, origem, responsável e próxima ação.
+  Lib: `src/lib/whatsapp/lead.ts`. Serve os dois `kind` da tabela `opportunity`
+  (PROSPECCAO = cadência de toques, OPORTUNIDADE = funil comercial).
+- **`GET /api/campanhas-list`** (`GET_CAMPAIGNS`) — campanhas **ativas** do tenant
+  com `messageText`/`link`/`mediaUrl`, para o seletor "Campanha" da ficha do lead.
+- **`POST /api/whatsapp-send`** (`REGISTER_WHATSAPP_SEND`) — efeitos do botão
+  "Enviar no WhatsApp" da ficha: avança o funil uma etapa, põe o lead no nome de
+  quem enviou e vincula a conversa aberta (`name_whatsapp_opportunity`).
+  Lib: `src/lib/whatsapp/send.ts`. O clique registra o toque e fecha o modal
+  **mesmo que a conversa não abra** (o funil não fica refém do DOM do WhatsApp);
+  só o vínculo exige conversa aberta e confirmada, senão a oportunidade grudaria
+  na conversa errada.
 
 ## Diferenças em relação ao RD Elo (manter ao portar mudanças entre os dois)
 

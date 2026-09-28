@@ -13,7 +13,8 @@
   ],
   "host_permissions": [
     "https://web.whatsapp.com/*",
-    "https://eloautomacoes.com.br/*"
+    "https://eloautomacoes.com.br/*",
+    "http://localhost:3001/*"
   ],
   "background": {
     "service_worker": "src/background.js"
